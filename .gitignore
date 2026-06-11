@@ -1,0 +1,10 @@
+node_modules/
+dist/
+release/
+out/
+build/
+*.exe
+*.zip
+*.7z
+*.log
+.DS_Store

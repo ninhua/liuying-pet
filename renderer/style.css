@@ -1,0 +1,464 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+#pet-root {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+
+  background: transparent;
+  cursor: grab;
+  box-sizing: border-box;
+  overflow: hidden;
+
+  --scene-scale: 1;
+  --pet-width: 180px;
+
+  --cloud-width: 126px;
+  --cloud-height: 72px;
+
+  --scene-x: 900px;
+  --scene-y: 120px;
+}
+
+#pet-root:active {
+  cursor: grabbing;
+}
+
+#scene {
+  position: absolute;
+
+  left: var(--scene-x) !important;
+  top: var(--scene-y) !important;
+  right: auto !important;
+  bottom: auto !important;
+
+  width: 360px;
+  height: 260px;
+
+  transform-origin: left top !important;
+  transform: scale(var(--scene-scale)) !important;
+
+  overflow: visible;
+  pointer-events: none;
+}
+
+#pet-area {
+  position: absolute;
+  left: 10px;
+  bottom: 0;
+
+  width: var(--pet-width);
+  height: 260px;
+
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* =========================
+   角色动作中间层
+   idle 微动作加在这里，不直接动 #pet
+========================= */
+
+#pet-motion-layer {
+  position: relative;
+
+  width: var(--pet-width);
+  height: 260px;
+
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+
+  transform-origin: center bottom;
+  pointer-events: none;
+  will-change: transform;
+}
+
+#pet {
+  width: var(--pet-width);
+  max-height: 258px;
+
+  object-fit: contain;
+
+  user-select: none;
+  -webkit-user-drag: none;
+  pointer-events: none;
+
+  animation: none !important;
+  transform: none !important;
+}
+
+#pet.sprite-hidden {
+  visibility: hidden !important;
+}
+
+/* =========================
+   Sprite 动作层
+========================= */
+
+#sprite-pet {
+  display: none;
+
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+
+  width: var(--pet-width);
+  height: 195px;
+
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  background-size: auto 100%;
+
+  pointer-events: none;
+  user-select: none;
+  image-rendering: auto;
+
+  z-index: 3;
+}
+
+/* =========================
+   气泡
+========================= */
+
+#bubble-area {
+  position: absolute;
+
+  left: 104px;
+  bottom: 180px;
+
+  width: calc(var(--cloud-width) + 52px);
+  height: calc(var(--cloud-height) + 44px);
+
+  z-index: 8;
+  pointer-events: none;
+  overflow: visible;
+}
+
+#speech-bubble {
+  position: absolute;
+
+  left: 34px;
+  top: 0;
+
+  width: var(--cloud-width);
+  height: var(--cloud-height);
+
+  display: none;
+  overflow: visible;
+}
+
+#cloud-shape {
+  position: absolute;
+  inset: 0;
+
+  width: 100%;
+  height: 100%;
+
+  overflow: visible;
+}
+
+.cloud-main {
+  fill: rgba(255, 255, 255, 0.97);
+  stroke: #3b2a22;
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.cloud-sketch {
+  fill: none;
+  stroke: #3b2a22;
+  stroke-width: 4;
+  stroke-linecap: round;
+  opacity: 0.85;
+}
+
+#bubble-text {
+  position: absolute;
+
+  left: 16px;
+  right: 16px;
+  top: 16px;
+  bottom: 12px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  color: #222222;
+  text-align: center;
+
+  font-family: "Microsoft YaHei", sans-serif;
+  font-size: 10px;
+  line-height: 1.28;
+
+  overflow: hidden;
+  word-break: break-word;
+}
+
+#thought-dots {
+  position: absolute;
+
+  left: 25px;
+  top: calc(var(--cloud-height) - 20px);
+
+  width: 42px;
+  height: 40px;
+
+  display: none;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.thought-dot {
+  position: absolute;
+  display: block;
+
+  background: rgba(255, 255, 255, 0.97);
+  border: 3px solid #3b2a22;
+  border-radius: 50%;
+
+  box-sizing: border-box;
+}
+
+.dot-big {
+  width: 18px;
+  height: 18px;
+
+  left: 12px;
+  top: 0;
+}
+
+.dot-small {
+  width: 12px;
+  height: 12px;
+
+  left: 0;
+  top: 20px;
+}
+
+#speech-bubble.show {
+  display: block;
+}
+
+#speech-bubble.show + #thought-dots {
+  display: block;
+}
+
+#speech-bubble.dragging {
+  display: none;
+}
+
+#speech-bubble.dragging + #thought-dots {
+  display: none;
+}
+
+/* =========================
+   立绘小动作：点击跳动 / 提醒摇动
+   注意：动作加在 #pet-area 上，不加在 #pet 上。
+========================= */
+
+#pet-area.pet-motion-hop {
+  animation: petMotionHop 650ms ease-out 1 !important;
+  transform-origin: center bottom !important;
+}
+
+#pet-area.pet-motion-wiggle {
+  animation: petMotionWiggle 650ms ease-in-out 1 !important;
+  transform-origin: center bottom !important;
+}
+
+#pet-root.dragging-pet #pet-area {
+  animation: none !important;
+  transform: none !important;
+}
+
+@keyframes petMotionHop {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+
+  28% {
+    transform: translateY(-10px) scale(1.025);
+  }
+
+  55% {
+    transform: translateY(2px) scale(0.995);
+  }
+
+  78% {
+    transform: translateY(-3px) scale(1.008);
+  }
+
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes petMotionWiggle {
+  0% {
+    transform: translateX(0) rotate(0deg);
+  }
+
+  18% {
+    transform: translateX(-4px) rotate(-3deg);
+  }
+
+  36% {
+    transform: translateX(4px) rotate(3deg);
+  }
+
+  54% {
+    transform: translateX(-3px) rotate(-2deg);
+  }
+
+  72% {
+    transform: translateX(3px) rotate(2deg);
+  }
+
+  100% {
+    transform: translateX(0) rotate(0deg);
+  }
+}
+
+/* =========================
+   拖动状态
+========================= */
+
+#pet-root.dragging-pet #pet {
+  animation: none !important;
+  transform: none !important;
+}
+
+/* =========================
+   禁止 Electron 原生拖动残留影响识别
+========================= */
+
+html,
+body,
+#pet-root,
+#scene,
+#pet-area,
+#pet-motion-layer,
+#pet,
+#sprite-pet,
+#bubble-area,
+#speech-bubble,
+#bubble-text,
+#thought-dots {
+  -webkit-app-region: no-drag !important;
+}
+
+/* =========================
+   四状态 idle 微动作
+   normal / happy / thinking / sleepy
+========================= */
+
+#pet-motion-layer.idle-motion-normal {
+  animation: liuyingIdleNormal 5.2s ease-in-out infinite;
+}
+
+#pet-motion-layer.idle-motion-happy {
+  animation: liuyingIdleHappy 3.4s ease-in-out infinite;
+}
+
+#pet-motion-layer.idle-motion-thinking {
+  animation: liuyingIdleThinking 6.2s ease-in-out infinite;
+}
+
+#pet-motion-layer.idle-motion-sleepy {
+  animation: liuyingIdleSleepy 6.8s ease-in-out infinite;
+}
+
+/* 拖动时、挥手 sprite 播放时，暂停 idle 微动作 */
+#pet-root.dragging-pet #pet-motion-layer,
+#pet-motion-layer.sprite-playing {
+  animation: none !important;
+  transform: none !important;
+}
+
+/* 普通：极轻呼吸 */
+@keyframes liuyingIdleNormal {
+  0% {
+    transform: translateY(0) scale(1);
+  }
+
+  50% {
+    transform: translateY(-1.5px) scale(1.002);
+  }
+
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* 开心：轻微活泼弹动 */
+@keyframes liuyingIdleHappy {
+  0% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+
+  30% {
+    transform: translateY(-2.5px) rotate(-0.4deg) scale(1.004);
+  }
+
+  60% {
+    transform: translateY(-1px) rotate(0.4deg) scale(1.002);
+  }
+
+  100% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+}
+
+/* 思考：慢速沉稳轻摆 */
+@keyframes liuyingIdleThinking {
+  0% {
+    transform: translateY(0) rotate(0deg);
+  }
+
+  35% {
+    transform: translateY(-1px) rotate(-0.35deg);
+  }
+
+  70% {
+    transform: translateY(0) rotate(0.25deg);
+  }
+
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+}
+
+/* 困困：慢慢浮动，像快睡着 */
+@keyframes liuyingIdleSleepy {
+  0% {
+    transform: translateY(0) rotate(0deg);
+  }
+
+  40% {
+    transform: translateY(2px) rotate(-0.25deg);
+  }
+
+  75% {
+    transform: translateY(-1px) rotate(0.2deg);
+  }
+
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+}

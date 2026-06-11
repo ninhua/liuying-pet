@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Desktop Pet</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div id="pet-root">
+    <div id="scene">
+      <div id="pet-area">
+        <div id="pet-motion-layer">
+          <img id="pet" src="../assets/character.png" alt="desktop pet">
+          <div id="sprite-pet"></div>
+        </div>
+      </div>
+      <div id="bubble-area">
+        <div id="speech-bubble">
+          <svg id="cloud-shape" viewBox="0 0 260 150" preserveAspectRatio="none">
+            <path
+              class="cloud-main"
+              d="
+                M42 115
+                C18 114 4 96 16 75
+                C2 48 30 27 58 38
+                C70 5 120 -7 145 25
+                C170 4 213 12 219 48
+                C250 54 258 92 234 112
+                C224 140 176 146 153 122
+                C130 150 82 146 70 118
+                C58 122 48 121 42 115
+                Z
+              "
+            />
+
+            <path class="cloud-sketch" d="M55 38 C72 8 116 2 143 25" />
+            <path class="cloud-sketch" d="M168 16 C197 11 219 28 221 52" />
+            <path class="cloud-sketch" d="M214 52 C248 61 250 98 229 112" />
+            <path class="cloud-sketch" d="M151 122 C130 145 91 145 72 119" />
+          </svg>
+
+          <div id="bubble-text"></div>
+        </div>
+
+        <div id="thought-dots">
+          <span class="thought-dot dot-big"></span>
+          <span class="thought-dot dot-small"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="./renderer.js"></script>
+</body>
+</html>
