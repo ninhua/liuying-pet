@@ -61,6 +61,22 @@
       <div id="chat-messages" aria-live="polite"></div>
 
       <form id="chat-form">
+        <div id="chat-options">
+          <div id="chat-mode-group" role="radiogroup" aria-label="模型模式">
+            <label class="chat-mode-option">
+              <input type="radio" name="chat-mode" value="flash" checked>
+              <span>非思考</span>
+            </label>
+            <label class="chat-mode-option">
+              <input type="radio" name="chat-mode" value="pro">
+              <span>思考</span>
+            </label>
+          </div>
+          <label id="chat-memory-option">
+            <input id="chat-memory" type="checkbox">
+            <span>长期记忆</span>
+          </label>
+        </div>
         <input
           id="chat-input"
           type="text"

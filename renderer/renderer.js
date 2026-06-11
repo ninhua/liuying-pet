@@ -13,6 +13,7 @@ const chatInput = document.getElementById("chat-input");
 const chatSend = document.getElementById("chat-send");
 const chatClose = document.getElementById("chat-close");
 const chatMessages = document.getElementById("chat-messages");
+const chatMemory = document.getElementById("chat-memory");
 
 let petConfig = {
   name: "流萤",
@@ -755,10 +756,22 @@ function getBubbleSummary(text) {
 }
 
 function getCacheMetaText(result) {
+  const parts = [];
+
+  if (result?.mode === "pro") {
+    parts.push("思考模式");
+  } else if (result?.mode === "flash") {
+    parts.push("非思考模式");
+  }
+
+  if (result?.memoryEnabled) {
+    parts.push("长期记忆已保存");
+  }
+
   const usage = result?.usage;
 
   if (!usage) {
-    return "";
+    return parts.join(" · ");
   }
 
   const hitTokens = Number(usage.promptCacheHitTokens || 0);
@@ -766,12 +779,24 @@ function getCacheMetaText(result) {
   const total = hitTokens + missTokens;
 
   if (total <= 0) {
-    return "";
+    return parts.join(" · ");
   }
 
   const hitRate = ((hitTokens / total) * 100).toFixed(1);
 
-  return `缓存命中 ${hitRate}%`;
+  parts.push(`缓存命中 ${hitRate}%`);
+
+  return parts.join(" · ");
+}
+
+function getSelectedChatMode() {
+  const selected = document.querySelector('input[name="chat-mode"]:checked');
+
+  if (!selected) {
+    return "flash";
+  }
+
+  return selected.value === "pro" ? "pro" : "flash";
 }
 
 async function sendChatMessage(message) {
@@ -792,7 +817,11 @@ async function sendChatMessage(message) {
   });
 
   try {
-    const result = await window.petAPI.sendChatMessage(trimmedMessage);
+    const result = await window.petAPI.sendChatMessage({
+      message: trimmedMessage,
+      mode: getSelectedChatMode(),
+      memoryEnabled: chatMemory?.checked === true
+    });
     const reply = result.reply || "我刚刚没有组织好语言。";
 
     appendChatMessage("assistant", reply, getCacheMetaText(result));

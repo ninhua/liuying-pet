@@ -32,6 +32,8 @@ const DEFAULT_MAX_HISTORY_TURNS = 6;
 const CHAT_USER_ID = "liuying-desktop-local";
 const DEEPSEEK_LOG_DIR = path.join(__dirname, "logs");
 const PERSONA_PROMPT_PATH = path.join(__dirname, "config", "persona.md");
+const DEFAULT_CHAT_LOCATION = "中国";
+const LONG_TERM_MEMORY_LIMIT = 20;
 
 const FALLBACK_SYSTEM_PROMPT = [
   "你是用户的 Windows 桌面宠物“流萤”。",
@@ -137,6 +139,7 @@ function readPetConfig() {
 function getChatSettings() {
   const config = readPetConfig();
   const apiConfig = config.api || {};
+  const contextConfig = config.context || {};
   const timeoutMs = Number(apiConfig.timeoutMs || DEFAULT_CHAT_TIMEOUT_MS);
   const maxHistoryTurns = Number(
     apiConfig.maxHistoryTurns || DEFAULT_MAX_HISTORY_TURNS
@@ -144,6 +147,8 @@ function getChatSettings() {
 
   return {
     model: apiConfig.model || DEFAULT_DEEPSEEK_MODEL,
+    mode: apiConfig.mode || "flash",
+    location: contextConfig.location || DEFAULT_CHAT_LOCATION,
     timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : DEFAULT_CHAT_TIMEOUT_MS,
     maxHistoryTurns: Number.isFinite(maxHistoryTurns)
       ? maxHistoryTurns
@@ -153,20 +158,46 @@ function getChatSettings() {
 
 function normalizeChatInput(input) {
   if (typeof input === "string") {
-    return input.trim();
+    return {
+      message: input.trim(),
+      mode: "",
+      memoryEnabled: false
+    };
   }
 
   if (input && typeof input.message === "string") {
-    return input.message.trim();
+    return {
+      message: input.message.trim(),
+      mode: typeof input.mode === "string" ? input.mode : "",
+      memoryEnabled: input.memoryEnabled === true
+    };
   }
 
-  return "";
+  return {
+    message: "",
+    mode: "",
+    memoryEnabled: false
+  };
 }
 
-function resolveModel(message, defaultModel) {
+function normalizeChatMode(mode, fallbackMode) {
+  if (mode === "pro" || mode === "thinking") {
+    return "pro";
+  }
+
+  if (mode === "flash" || mode === "quick") {
+    return "flash";
+  }
+
+  return fallbackMode === "pro" ? "pro" : "flash";
+}
+
+function resolveModel(message, settings, requestedMode) {
   if (message.startsWith("/pro ")) {
     return {
       model: PRO_DEEPSEEK_MODEL,
+      mode: "pro",
+      thinkingType: "enabled",
       message: message.slice(5).trim()
     };
   }
@@ -174,14 +205,114 @@ function resolveModel(message, defaultModel) {
   if (message.startsWith("/flash ")) {
     return {
       model: DEFAULT_DEEPSEEK_MODEL,
+      mode: "flash",
+      thinkingType: "disabled",
       message: message.slice(7).trim()
     };
   }
 
+  const mode = normalizeChatMode(requestedMode, settings.mode);
+
+  if (mode === "pro") {
+    return {
+      model: PRO_DEEPSEEK_MODEL,
+      mode,
+      thinkingType: "enabled",
+      message
+    };
+  }
+
   return {
-    model: defaultModel,
+    model: DEFAULT_DEEPSEEK_MODEL,
+    mode: "flash",
+    thinkingType: "disabled",
     message
   };
+}
+
+function getRuntimeContext(settings) {
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat("zh-CN", {
+    dateStyle: "full",
+    timeStyle: "medium",
+    hour12: false
+  });
+
+  return [
+    "当前运行上下文：",
+    `- 当前日期时间：${formatter.format(now)}`,
+    `- 时区：${Intl.DateTimeFormat().resolvedOptions().timeZone || "本地时区"}`,
+    `- 位置：${settings.location}`,
+    "- 以上上下文由本地配置提供；如果用户提供了更精确的信息，以用户消息为准。"
+  ].join("\n");
+}
+
+function getLongTermMemoryPath() {
+  return path.join(app.getPath("userData"), "long-term-memory.json");
+}
+
+function readLongTermMemory() {
+  const memoryPath = getLongTermMemoryPath();
+
+  try {
+    if (!fs.existsSync(memoryPath)) {
+      return [];
+    }
+
+    const raw = fs.readFileSync(memoryPath, "utf-8");
+    const memory = JSON.parse(raw);
+
+    return Array.isArray(memory) ? memory : [];
+  } catch (error) {
+    console.error("Failed to read long-term memory:", error);
+    return [];
+  }
+}
+
+function writeLongTermMemory(memory) {
+  const memoryPath = getLongTermMemoryPath();
+
+  try {
+    fs.mkdirSync(path.dirname(memoryPath), {
+      recursive: true
+    });
+
+    fs.writeFileSync(
+      memoryPath,
+      JSON.stringify(memory.slice(-LONG_TERM_MEMORY_LIMIT), null, 2),
+      "utf-8"
+    );
+  } catch (error) {
+    console.error("Failed to write long-term memory:", error);
+  }
+}
+
+function appendLongTermMemory(userMessage, assistantMessage) {
+  const memory = readLongTermMemory();
+
+  memory.push({
+    savedAt: new Date().toISOString(),
+    user: userMessage,
+    assistant: assistantMessage
+  });
+
+  writeLongTermMemory(memory);
+}
+
+function formatLongTermMemory(memory) {
+  if (!memory.length) {
+    return "";
+  }
+
+  const lines = memory.slice(-LONG_TERM_MEMORY_LIMIT).map((item, index) => {
+    return `${index + 1}. 用户：${item.user}\n   流萤：${item.assistant}`;
+  });
+
+  return [
+    "长期记忆：",
+    "以下是用户选择保存的历史对话摘要，可用于保持连续陪伴；不要主动逐字复述。",
+    ...lines
+  ].join("\n");
 }
 
 function compactChatHistoryIfNeeded(maxHistoryTurns) {
@@ -263,14 +394,14 @@ async function sendDeepSeekChat(rawInput) {
     throw new Error("未配置 DEEPSEEK_API_KEY。请先在 PowerShell 中设置环境变量。");
   }
 
-  const inputMessage = normalizeChatInput(rawInput);
+  const input = normalizeChatInput(rawInput);
 
-  if (!inputMessage) {
+  if (!input.message) {
     throw new Error("请输入要和流萤说的话。");
   }
 
   const settings = getChatSettings();
-  const modelResult = resolveModel(inputMessage, settings.model);
+  const modelResult = resolveModel(input.message, settings, input.mode);
   const message = modelResult.message;
 
   if (!message) {
@@ -283,12 +414,31 @@ async function sendDeepSeekChat(rawInput) {
     role: "user",
     content: message
   };
+  const runtimeContext = getRuntimeContext(settings);
+  const longTermMemory = input.memoryEnabled ? readLongTermMemory() : [];
+  const longTermMemoryPrompt = input.memoryEnabled
+    ? formatLongTermMemory(longTermMemory)
+    : "";
+  const contextMessages = [
+    {
+      role: "system",
+      content: runtimeContext
+    }
+  ];
+
+  if (longTermMemoryPrompt) {
+    contextMessages.push({
+      role: "system",
+      content: longTermMemoryPrompt
+    });
+  }
 
   const messages = [
     {
       role: "system",
       content: readPersonaPrompt()
     },
+    ...contextMessages,
     ...chatHistory,
     nextUserMessage
   ];
@@ -302,7 +452,7 @@ async function sendDeepSeekChat(rawInput) {
     model: modelResult.model,
     messages,
     thinking: {
-      type: "disabled"
+      type: modelResult.thinkingType
     },
     temperature: 0.7,
     max_tokens: 240,
@@ -359,11 +509,17 @@ async function sendDeepSeekChat(rawInput) {
       content: reply
     });
 
+    if (input.memoryEnabled) {
+      appendLongTermMemory(message, reply);
+    }
+
     logDeepSeekCacheUsage(data.usage);
 
     return {
       reply,
       model: modelResult.model,
+      mode: modelResult.mode,
+      memoryEnabled: input.memoryEnabled,
       usage: {
         promptCacheHitTokens: Number(data.usage?.prompt_cache_hit_tokens || 0),
         promptCacheMissTokens: Number(data.usage?.prompt_cache_miss_tokens || 0)

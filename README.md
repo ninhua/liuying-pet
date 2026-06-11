@@ -13,6 +13,7 @@
 - DeepSeek 聊天面板，支持本地 `.env` 配置 API Key
 - 可通过 `config/persona.md` 调整流萤聊天人格设定
 - DeepSeek 请求日志写入 `logs/`，该目录不会提交到 Git
+- 聊天面板支持 `非思考 / 思考` 模式切换和 `长期记忆`
 
 ## 环境要求
 
@@ -55,6 +56,7 @@ DEEPSEEK_API_KEY=你的 DeepSeek API Key
 ```json
 {
   "model": "deepseek-v4-flash",
+  "mode": "flash",
   "timeoutMs": 30000,
   "maxHistoryTurns": 6
 }
@@ -65,6 +67,24 @@ DEEPSEEK_API_KEY=你的 DeepSeek API Key
 - `/flash 你好`：使用 flash 模型
 - `/pro 帮我想一句提醒`：使用 pro 模型
 
+还可以在 `config/pet.json` 里补充上下文配置：
+
+```json
+{
+  "context": {
+    "location": "中国"
+  }
+}
+```
+
+这里的 `location` 会作为本地上下文提供给聊天后端，默认值是 `中国`。
+
+聊天面板里也可以直接切换：
+
+- `非思考`：使用 flash 模式
+- `思考`：使用 pro 模式
+- `长期记忆`：发送时把当前对话保存到本机用户数据目录，供后续聊天继续参考
+
 流萤的聊天人格提示词位于：
 
 ```text
@@ -72,6 +92,8 @@ config/persona.md
 ```
 
 如果该文件读取失败，程序会使用 `main.js` 中的备用人格提示词。
+
+聊天请求会自动带上当前会话的历史摘要，避免上下文太长时被截断得太快。
 
 ## 使用方式
 
