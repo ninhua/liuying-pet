@@ -250,6 +250,13 @@ ipcMain.on("set-mouse-ignore", (_event, ignore) => {
   }
 });
 
+ipcMain.on("show-context-menu", () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  mainWindow.setIgnoreMouseEvents(false);
+  showContextMenu();
+});
+
 app.whenReady().then(() => {
   createWindow();
 });
