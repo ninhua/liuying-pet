@@ -11,9 +11,11 @@ const chatPanel = document.getElementById("chat-panel");
 const chatForm = document.getElementById("chat-form");
 const chatInput = document.getElementById("chat-input");
 const chatSend = document.getElementById("chat-send");
+const chatBalance = document.getElementById("chat-balance");
 const chatClose = document.getElementById("chat-close");
 const chatMessages = document.getElementById("chat-messages");
-const chatMemory = document.getElementById("chat-memory");
+const chatThinkingToggle = document.getElementById("chat-thinking-toggle");
+const chatMemoryToggle = document.getElementById("chat-memory-toggle");
 
 let petConfig = {
   name: "流萤",
@@ -94,6 +96,10 @@ let petHitReady = false;
 let isChatOpen = false;
 let isChatSending = false;
 let hasChatGreeting = false;
+let isBalanceLoading = false;
+
+const CHAT_MODE_STORAGE_KEY = "liuying.chat.mode";
+const CHAT_MEMORY_STORAGE_KEY = "liuying.chat.memoryMode";
 
 const IDLE_MOTION_CLASSES = [
   "idle-motion-normal",
@@ -114,6 +120,7 @@ function getFallbackPetHitRect(rect) {
 async function initPet() {
   try {
     buildPetHitCanvas();
+    initChatOptionState();
     resetSceneInitialPosition();
 
     petConfig = await window.petAPI.getPetConfig();
@@ -673,6 +680,7 @@ function openChatPanel() {
 
   isChatOpen = true;
   chatPanel.classList.add("show");
+  refreshDeepSeekBalance();
 
   if (!hasChatGreeting) {
     appendChatMessage("assistant", "我在这里，想聊什么都可以。");
@@ -688,6 +696,80 @@ function openChatPanel() {
       chatInput.focus();
     }
   }, 80);
+}
+
+function getBalanceErrorMessage(error) {
+  const rawMessage = String(error?.message || error || "余额查询失败。");
+  const marker = "Error invoking remote method 'deepseek-balance': Error: ";
+
+  if (rawMessage.includes(marker)) {
+    return rawMessage.slice(rawMessage.indexOf(marker) + marker.length);
+  }
+
+  return rawMessage;
+}
+
+async function refreshDeepSeekBalance() {
+  if (!chatBalance || isBalanceLoading) return;
+
+  isBalanceLoading = true;
+  chatBalance.disabled = true;
+  chatBalance.textContent = "余额 ...";
+
+  try {
+    const result = await window.petAPI.getDeepSeekBalance();
+    chatBalance.textContent = result?.text ? `余额 ${result.text}` : "余额未知";
+    chatBalance.title = "点击刷新 DeepSeek 余额";
+  } catch (error) {
+    chatBalance.textContent = "余额失败";
+    chatBalance.title = getBalanceErrorMessage(error);
+  } finally {
+    isBalanceLoading = false;
+    chatBalance.disabled = false;
+  }
+}
+
+function initChatOptionState() {
+  const storedMode = localStorage.getItem(CHAT_MODE_STORAGE_KEY);
+  const storedMemoryMode = localStorage.getItem(CHAT_MEMORY_STORAGE_KEY);
+
+  setToggleState(chatThinkingToggle, storedMode === "pro");
+  setToggleState(chatMemoryToggle, storedMemoryMode === "on");
+
+  if (chatThinkingToggle) {
+    chatThinkingToggle.addEventListener("click", () => {
+      const nextEnabled = !isToggleEnabled(chatThinkingToggle);
+
+      setToggleState(chatThinkingToggle, nextEnabled);
+      localStorage.setItem(
+        CHAT_MODE_STORAGE_KEY,
+        nextEnabled ? "pro" : "flash"
+      );
+    });
+  }
+
+  if (chatMemoryToggle) {
+    chatMemoryToggle.addEventListener("click", () => {
+      const nextEnabled = !isToggleEnabled(chatMemoryToggle);
+
+      setToggleState(chatMemoryToggle, nextEnabled);
+      localStorage.setItem(
+        CHAT_MEMORY_STORAGE_KEY,
+        nextEnabled ? "on" : "off"
+      );
+    });
+  }
+}
+
+function setToggleState(button, enabled) {
+  if (!button) return;
+
+  button.classList.toggle("active", enabled);
+  button.setAttribute("aria-pressed", enabled ? "true" : "false");
+}
+
+function isToggleEnabled(button) {
+  return button?.classList.contains("active") === true;
 }
 
 function closeChatPanel() {
@@ -758,7 +840,9 @@ function getBubbleSummary(text) {
 function getCacheMetaText(result) {
   const parts = [];
 
-  if (result?.mode === "pro") {
+  if (result?.mode === "command") {
+    parts.push("魔法指令");
+  } else if (result?.mode === "pro") {
     parts.push("思考模式");
   } else if (result?.mode === "flash") {
     parts.push("非思考模式");
@@ -766,6 +850,10 @@ function getCacheMetaText(result) {
 
   if (result?.memoryEnabled) {
     parts.push("长期记忆已保存");
+  }
+
+  if (result?.estimatedCost?.totalCny >= 0) {
+    parts.push(`本轮 ¥${result.estimatedCost.totalCny.toFixed(6)}`);
   }
 
   const usage = result?.usage;
@@ -790,13 +878,11 @@ function getCacheMetaText(result) {
 }
 
 function getSelectedChatMode() {
-  const selected = document.querySelector('input[name="chat-mode"]:checked');
+  return isToggleEnabled(chatThinkingToggle) ? "pro" : "flash";
+}
 
-  if (!selected) {
-    return "flash";
-  }
-
-  return selected.value === "pro" ? "pro" : "flash";
+function getSelectedChatMemoryMode() {
+  return isToggleEnabled(chatMemoryToggle) ? "on" : "off";
 }
 
 async function sendChatMessage(message) {
@@ -820,7 +906,7 @@ async function sendChatMessage(message) {
     const result = await window.petAPI.sendChatMessage({
       message: trimmedMessage,
       mode: getSelectedChatMode(),
-      memoryEnabled: chatMemory?.checked === true
+      memoryEnabled: getSelectedChatMemoryMode() === "on"
     });
     const reply = result.reply || "我刚刚没有组织好语言。";
 
@@ -861,6 +947,12 @@ if (chatForm) {
 if (chatClose) {
   chatClose.addEventListener("click", () => {
     closeChatPanel();
+  });
+}
+
+if (chatBalance) {
+  chatBalance.addEventListener("click", () => {
+    refreshDeepSeekBalance();
   });
 }
 

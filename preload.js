@@ -17,6 +17,14 @@ contextBridge.exposeInMainWorld("petAPI", {
     return ipcRenderer.invoke("deepseek-chat", message);
   },
 
+  getDeepSeekBalance: () => {
+    return ipcRenderer.invoke("deepseek-balance");
+  },
+
+  getLongTermMemory: () => {
+    return ipcRenderer.invoke("get-long-term-memory");
+  },
+
   onOpenChat: (callback) => {
     ipcRenderer.on("open-chat", () => {
       callback();

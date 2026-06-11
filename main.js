@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, screen } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, screen, net } = require("electron");
 const path = require("path");
 const fs = require("fs");
 
@@ -25,6 +25,7 @@ const SIZE_PRESETS = {
 };
 
 const DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions";
+const DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/user/balance";
 const DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash";
 const PRO_DEEPSEEK_MODEL = "deepseek-v4-pro";
 const DEFAULT_CHAT_TIMEOUT_MS = 30000;
@@ -34,6 +35,18 @@ const DEEPSEEK_LOG_DIR = path.join(__dirname, "logs");
 const PERSONA_PROMPT_PATH = path.join(__dirname, "config", "persona.md");
 const DEFAULT_CHAT_LOCATION = "中国";
 const LONG_TERM_MEMORY_LIMIT = 20;
+const DEEPSEEK_PRICE_BY_MODEL = {
+  "deepseek-v4-flash": {
+    cacheHitInputCnyPerMillion: 0.02,
+    cacheMissInputCnyPerMillion: 1,
+    outputCnyPerMillion: 2
+  },
+  "deepseek-v4-pro": {
+    cacheHitInputCnyPerMillion: 0.025,
+    cacheMissInputCnyPerMillion: 3,
+    outputCnyPerMillion: 6
+  }
+};
 
 const FALLBACK_SYSTEM_PROMPT = [
   "你是用户的 Windows 桌面宠物“流萤”。",
@@ -105,7 +118,7 @@ function loadLocalEnvFile() {
       }
     });
   } catch (error) {
-    console.error("读取 .env 失败：", error);
+    console.error("Failed to read .env:", error);
   }
 }
 
@@ -116,7 +129,7 @@ function readPetConfig() {
     const raw = fs.readFileSync(configPath, "utf-8");
     return JSON.parse(raw);
   } catch (error) {
-    console.error("读取 pet.json 失败：", error);
+    console.error("Failed to read pet.json:", error);
 
     return {
       name: "流萤",
@@ -269,6 +282,22 @@ function readLongTermMemory() {
   }
 }
 
+function getLongTermMemorySnapshot() {
+  const memory = readLongTermMemory();
+  const items = memory.slice(-LONG_TERM_MEMORY_LIMIT).map((item) => {
+    return {
+      savedAt: item.savedAt || "",
+      user: String(item.user || ""),
+      assistant: String(item.assistant || "")
+    };
+  });
+
+  return {
+    count: memory.length,
+    items
+  };
+}
+
 function writeLongTermMemory(memory) {
   const memoryPath = getLongTermMemoryPath();
 
@@ -297,6 +326,79 @@ function appendLongTermMemory(userMessage, assistantMessage) {
   });
 
   writeLongTermMemory(memory);
+}
+
+function saveCurrentChatHistoryToLongTermMemory() {
+  if (chatHistory.length === 0) {
+    return 0;
+  }
+
+  const memory = readLongTermMemory();
+  let savedCount = 0;
+
+  for (let index = 0; index < chatHistory.length; index += 1) {
+    const userMessage = chatHistory[index];
+    const assistantMessage = chatHistory[index + 1];
+
+    if (
+      userMessage?.role === "user" &&
+      assistantMessage?.role === "assistant"
+    ) {
+      memory.push({
+        savedAt: new Date().toISOString(),
+        user: userMessage.content,
+        assistant: assistantMessage.content
+      });
+      savedCount += 1;
+      index += 1;
+    }
+  }
+
+  if (savedCount > 0) {
+    writeLongTermMemory(memory);
+  }
+
+  return savedCount;
+}
+
+function handleMagicCommand(message) {
+  const command = message.trim().toLowerCase();
+
+  if (command === "/new" || command === "/clear") {
+    chatHistory = [];
+
+    return {
+      handled: true,
+      reply: "新的对话已经开始啦。",
+      command: "new"
+    };
+  }
+
+  if (command === "/save") {
+    const savedCount = saveCurrentChatHistoryToLongTermMemory();
+
+    return {
+      handled: true,
+      reply:
+        savedCount > 0
+          ? `这次对话已经保存到长期记忆里啦，共 ${savedCount} 轮。`
+          : "当前还没有可以保存的对话。",
+      command: "save",
+      savedCount
+    };
+  }
+
+  if (command === "/help") {
+    return {
+      handled: true,
+      reply: "可用指令：/new 开始新对话，/save 保存本次对话，/help 查看指令。",
+      command: "help"
+    };
+  }
+
+  return {
+    handled: false
+  };
 }
 
 function formatLongTermMemory(memory) {
@@ -341,7 +443,18 @@ function compactChatHistoryIfNeeded(maxHistoryTurns) {
     ...recentMessages
   ];
 
-  console.log("DeepSeek 会话过长，已开启新的摘要前缀。");
+  console.log("DeepSeek chat history compacted into a new summary prefix.");
+}
+
+function getDeepSeekReply(data) {
+  const message = data?.choices?.[0]?.message;
+  const content = message?.content;
+
+  if (typeof content === "string" && content.trim()) {
+    return content.trim();
+  }
+
+  return "";
 }
 
 function logDeepSeekCacheUsage(usage) {
@@ -357,6 +470,52 @@ function logDeepSeekCacheUsage(usage) {
 
   console.log(
     `DeepSeek KVCache: hit=${hitTokens}, miss=${missTokens}, hitRate=${hitRate}`
+  );
+}
+
+function estimateDeepSeekCost(model, usage) {
+  const price = DEEPSEEK_PRICE_BY_MODEL[model];
+
+  if (!price || !usage) {
+    return null;
+  }
+
+  const cacheHitInputTokens = Number(usage.prompt_cache_hit_tokens || 0);
+  const cacheMissInputTokens = Number(usage.prompt_cache_miss_tokens || 0);
+  const outputTokens = Number(usage.completion_tokens || 0);
+  const cacheHitInputCny =
+    cacheHitInputTokens * price.cacheHitInputCnyPerMillion / 1000000;
+  const cacheMissInputCny =
+    cacheMissInputTokens * price.cacheMissInputCnyPerMillion / 1000000;
+  const outputCny =
+    outputTokens * price.outputCnyPerMillion / 1000000;
+  const totalCny = cacheHitInputCny + cacheMissInputCny + outputCny;
+
+  return {
+    currency: "CNY",
+    model,
+    cacheHitInputTokens,
+    cacheMissInputTokens,
+    outputTokens,
+    cacheHitInputCny,
+    cacheMissInputCny,
+    outputCny,
+    totalCny
+  };
+}
+
+function logDeepSeekCost(cost) {
+  if (!cost) return;
+
+  console.log(
+    [
+      "DeepSeek cost:",
+      `model=${cost.model}`,
+      `cacheHitInputTokens=${cost.cacheHitInputTokens}`,
+      `cacheMissInputTokens=${cost.cacheMissInputTokens}`,
+      `outputTokens=${cost.outputTokens}`,
+      `totalCNY=${cost.totalCny.toFixed(8)}`
+    ].join(" ")
   );
 }
 
@@ -387,17 +546,129 @@ function writeDeepSeekApiLog(entry) {
   }
 }
 
-async function sendDeepSeekChat(rawInput) {
+function getDeepSeekApiKey() {
   const apiKey = process.env.DEEPSEEK_API_KEY;
 
   if (!apiKey) {
     throw new Error("未配置 DEEPSEEK_API_KEY。请先在 PowerShell 中设置环境变量。");
   }
 
+  return apiKey;
+}
+
+function formatDeepSeekBalance(data) {
+  if (!data || data.is_available === false) {
+    return "余额不可用";
+  }
+
+  const balanceInfos = Array.isArray(data.balance_infos)
+    ? data.balance_infos
+    : [];
+
+  if (balanceInfos.length === 0) {
+    return "余额未知";
+  }
+
+  return balanceInfos
+    .map((item) => {
+      const currency = item.currency || "";
+      const total = item.total_balance ?? item.topped_up_balance ?? "0";
+
+      return `${total} ${currency}`.trim();
+    })
+    .join(" / ");
+}
+
+async function getDeepSeekBalance() {
+  const apiKey = getDeepSeekApiKey();
+  const startedAt = Date.now();
+
+  try {
+    const response = await net.fetch(DEEPSEEK_BALANCE_URL, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${apiKey}`
+      }
+    });
+
+    const data = await response.json().catch(() => null);
+    const durationMs = Date.now() - startedAt;
+
+    writeDeepSeekApiLog({
+      type: "deepseek-balance",
+      ok: response.ok,
+      durationMs,
+      request: {
+        url: DEEPSEEK_BALANCE_URL,
+        method: "GET"
+      },
+      response: {
+        status: response.status,
+        statusText: response.statusText,
+        body: data
+      }
+    });
+
+    if (!response.ok) {
+      const messageFromApi =
+        data?.error?.message || data?.message || `HTTP ${response.status}`;
+      const apiError = new Error(`DeepSeek 余额查询失败：${messageFromApi}`);
+      apiError.deepSeekResponseLogged = true;
+      throw apiError;
+    }
+
+    return {
+      available: data?.is_available === true,
+      text: formatDeepSeekBalance(data),
+      balanceInfos: Array.isArray(data?.balance_infos)
+        ? data.balance_infos
+        : []
+    };
+  } catch (error) {
+    if (!error.deepSeekResponseLogged) {
+      writeDeepSeekApiLog({
+        type: "deepseek-balance",
+        ok: false,
+        durationMs: Date.now() - startedAt,
+        request: {
+          url: DEEPSEEK_BALANCE_URL,
+          method: "GET"
+        },
+        error: {
+          name: error.name,
+          message: error.message
+        }
+      });
+    }
+
+    throw error;
+  }
+}
+
+async function sendDeepSeekChat(rawInput) {
+  const apiKey = getDeepSeekApiKey();
+
   const input = normalizeChatInput(rawInput);
 
   if (!input.message) {
     throw new Error("请输入要和流萤说的话。");
+  }
+
+  const magicCommandResult = handleMagicCommand(input.message);
+
+  if (magicCommandResult.handled) {
+    return {
+      reply: magicCommandResult.reply,
+      mode: "command",
+      memoryEnabled: false,
+      command: magicCommandResult.command,
+      savedCount: magicCommandResult.savedCount || 0,
+      usage: {
+        promptCacheHitTokens: 0,
+        promptCacheMissTokens: 0
+      }
+    };
   }
 
   const settings = getChatSettings();
@@ -455,12 +726,16 @@ async function sendDeepSeekChat(rawInput) {
       type: modelResult.thinkingType
     },
     temperature: 0.7,
-    max_tokens: 240,
+    max_tokens: modelResult.thinkingType === "enabled" ? 800 : 240,
     user_id: CHAT_USER_ID
   };
 
+  if (modelResult.thinkingType === "enabled") {
+    requestBody.thinking.reasoning_effort = "medium";
+  }
+
   try {
-    const response = await fetch(DEEPSEEK_API_URL, {
+    const response = await net.fetch(DEEPSEEK_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -472,6 +747,7 @@ async function sendDeepSeekChat(rawInput) {
 
     const data = await response.json().catch(() => null);
     const durationMs = Date.now() - startedAt;
+    const estimatedCost = estimateDeepSeekCost(modelResult.model, data?.usage);
 
     writeDeepSeekApiLog({
       type: "deepseek-chat",
@@ -485,7 +761,8 @@ async function sendDeepSeekChat(rawInput) {
       response: {
         status: response.status,
         statusText: response.statusText,
-        body: data
+        body: data,
+        estimatedCost
       }
     });
 
@@ -497,10 +774,13 @@ async function sendDeepSeekChat(rawInput) {
       throw apiError;
     }
 
-    const reply = data?.choices?.[0]?.message?.content?.trim();
+    let reply = getDeepSeekReply(data);
 
     if (!reply) {
-      throw new Error("DeepSeek 返回为空。");
+      console.warn(
+        `DeepSeek returned empty content: model=${modelResult.model}, finishReason=${data?.choices?.[0]?.finish_reason || "unknown"}`
+      );
+      reply = "我刚刚没有组织好语言，我们再试一次。";
     }
 
     chatHistory.push(nextUserMessage);
@@ -514,12 +794,14 @@ async function sendDeepSeekChat(rawInput) {
     }
 
     logDeepSeekCacheUsage(data.usage);
+    logDeepSeekCost(estimatedCost);
 
     return {
       reply,
       model: modelResult.model,
       mode: modelResult.mode,
       memoryEnabled: input.memoryEnabled,
+      estimatedCost,
       usage: {
         promptCacheHitTokens: Number(data.usage?.prompt_cache_hit_tokens || 0),
         promptCacheMissTokens: Number(data.usage?.prompt_cache_miss_tokens || 0)
@@ -752,6 +1034,14 @@ ipcMain.handle("get-pet-config", () => {
 
 ipcMain.handle("deepseek-chat", async (_event, message) => {
   return sendDeepSeekChat(message);
+});
+
+ipcMain.handle("deepseek-balance", async () => {
+  return getDeepSeekBalance();
+});
+
+ipcMain.handle("get-long-term-memory", () => {
+  return getLongTermMemorySnapshot();
 });
 
 ipcMain.on("set-mouse-ignore", (_event, ignore) => {
