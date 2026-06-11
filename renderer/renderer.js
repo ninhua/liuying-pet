@@ -30,9 +30,9 @@ const EXPRESSION_IMAGES = {
 let currentExpression = "normal";
 
 /*
-  baseExpression 鏄€滄墜鍔ㄩ€夋嫨鐨勫父椹昏〃鎯呪€濄€?
-  渚嬪浣犲彸閿€変簡鈥滃洶鍥扳€濓紝baseExpression 灏辨槸 sleepy銆?
-  鐐瑰嚮璇磋瘽鏃跺彲浠ヤ复鏃?thinking锛屼絾缁撴潫鍚庝細鍥炲埌 sleepy锛岃€屼笉鏄浐瀹氬洖 normal銆?
+  baseExpression 是“手动选择的常驻表情”。
+  例如你右键选了“困困”，baseExpression 就是 sleepy。
+  点击说话时可以临时 thinking，但结束后会回到 sleepy，而不是固定回 normal。
 */
 let baseExpression = "normal";
 let expressionTimer = null;
@@ -67,8 +67,8 @@ const EDGE_SNAP_MARGIN = 8;
 const SPRITE_CONFIG = {
   wave: {
     src: "../assets/sprites/wave.png",
-    frameWidth: 1024,
-    frameHeight: 1536,
+    frameWidth: 192,
+    frameHeight: 208,
     frames: 5,
     fps: 5,
     loop: false
@@ -106,7 +106,7 @@ async function initPet() {
     resetSceneInitialPosition();
 
     petConfig = await window.petAPI.getPetConfig();
-    console.log("璇诲彇鍒版瀹犻厤缃細", petConfig);
+    console.log("读取到桌宠配置：", petConfig);
 
     remindersRuntimeEnabled = petConfig.reminders?.enabled === true;
 
@@ -119,7 +119,7 @@ async function initPet() {
     lastMouseIgnore = true;
   } catch (error) {
     console.error("读取桌宠配置失败：", error);
-    showLine("配置读取失败，但我还是在。");
+    showLine("配置读取失败啦，但我还是在。");
   }
 }
 
@@ -202,13 +202,13 @@ function updateIdleMotionByExpression(expressionName) {
 }
 
 /*
-  琛ㄦ儏鍒囨崲鏍稿績鍑芥暟銆?
+  表情切换核心函数。
 
   setExpression("thinking");
-  琛ㄧず鎵嬪姩鍒囨崲涓烘€濊€冿紝涔嬪悗浼氫竴鐩翠繚鎸佹€濊€冦€?
+  表示手动切换为思考，之后会一直保持思考。
 
   setExpression("thinking", { temporary: true, durationMs: 3500 });
-  琛ㄧず涓存椂鎬濊€冿紝鏃堕棿缁撴潫鍚庡洖鍒?baseExpression銆?
+  表示临时思考，时间结束后回到 baseExpression。
 */
 function setExpression(expressionName, options = {}) {
   const nextExpression = normalizeExpressionName(expressionName);
@@ -262,7 +262,7 @@ function handleExpressionImageError() {
   }
 
   isUsingFallbackImage = true;
-  console.warn(`琛ㄦ儏鍥剧墖涓嶅瓨鍦紝宸插洖閫€鍒版櫘閫氬浘锛?{currentExpression}`);
+  console.warn(`表情图片不存在，已回退到普通图：${currentExpression}`);
 
   pet.src = EXPRESSION_IMAGES.normal;
 }
@@ -308,8 +308,8 @@ function buildPetHitCanvas() {
 }
 
 /*
-  绋冲畾鎷栧姩鐗堬細
-  涓嶇Щ鍔?Electron 绐楀彛锛屽彧绉诲姩 #scene銆?
+  稳定拖动版：
+  不移动 Electron 窗口，只移动 #scene。
 */
 petRoot.addEventListener("mousedown", (event) => {
   if (event.button !== 0) return;
@@ -338,21 +338,11 @@ petRoot.addEventListener("mousedown", (event) => {
   speechBubble.classList.add("dragging");
 });
 
-petRoot.addEventListener("contextmenu", (event) => {
-  event.preventDefault();
-
-  if (isMouseDown) {
-    cancelMouseDrag();
-  }
-
-  window.petAPI.showContextMenu();
-});
-
 document.addEventListener("mousemove", (event) => {
   /*
-    淇濋櫓淇锛?
-    濡傛灉绋嬪簭浠ヤ负榧犳爣杩樻寜鐫€锛屼絾绯荤粺鍛婅瘔鎴戜滑宸﹂敭宸茬粡鏉惧紑锛?
-    璇存槑 mouseup 涓簡銆傝繖閲岀珛鍒荤粨鏉熸嫋鍔紝闃叉娴佽悿璺熺潃榧犳爣璺戙€?
+    保险修复：
+    如果程序以为鼠标还按着，但系统告诉我们左键已经松开，
+    说明 mouseup 丢了。这里立刻结束拖动，防止流萤跟着鼠标跑。
   */
   if (isMouseDown && event.buttons !== 1) {
     finishMouseDrag(event);
@@ -412,9 +402,9 @@ function finishMouseDrag(event) {
   const wasMoved = hasMoved;
 
   /*
-    鍏堝叧闂嫋鍔ㄧ姸鎬併€?
-    杩欐牱 showRandomLine / 琛ㄦ儏鍒囨崲 / idle 鍔ㄧ敾瑙﹀彂鏃讹紝
-    涓嶄細鍐嶈璇垽涓烘鍦ㄦ嫋鍔ㄣ€?
+    先关闭拖动状态。
+    这样 showRandomLine / 表情切换 / idle 动画触发时，
+    不会再被误判为正在拖动。
   */
   isMouseDown = false;
   hasMoved = false;
@@ -633,7 +623,7 @@ function isInsideRect(x, y, rect) {
 }
 
 /* =========================
-   Sprite 鍔ㄤ綔绯荤粺
+   Sprite 动作系统
 ========================= */
 
 function stopSpriteMotion() {
@@ -683,14 +673,14 @@ function playSpriteMotion(motionName = "wave", fallbackMotion = "hop") {
     currentSpriteFrame = 0;
 
     /*
-      鍏抽敭淇锛?
-      涓嶈兘鐢?pet.getBoundingClientRect().height銆?
-      鍥犱负 getBoundingClientRect() 鎷垮埌鐨勬槸宸茬粡琚?sceneScale 缂╂斁鍚庣殑楂樺害銆?
-      sprite 鏈韩鍦?#scene 閲岄潰锛屽悗闈㈣繕浼氳 sceneScale 鍐嶇缉鏀句竴娆★紝
-      鎵€浠ヤ細瀵艰嚧杩蜂綘鏇村皬銆佸ぇ鍙锋洿澶с€?
+      关键修复：
+      不能用 pet.getBoundingClientRect().height。
+      因为 getBoundingClientRect() 拿到的是已经被 sceneScale 缩放后的高度。
+      sprite 本身在 #scene 里面，后面还会被 sceneScale 再缩放一次，
+      所以会导致迷你更小、大号更大。
 
-      杩欓噷鏀圭敤 offsetHeight / clientHeight銆?
-      瀹冩嬁鍒扮殑鏄湭缁忚繃 transform scale 鐨勫竷灞€楂樺害銆?
+      这里改用 offsetHeight / clientHeight。
+      它拿到的是未经过 transform scale 的布局高度。
     */
     const realFrameWidth = Math.round(testImage.naturalWidth / sprite.frames);
     const realFrameHeight = testImage.naturalHeight;
@@ -700,9 +690,9 @@ function playSpriteMotion(motionName = "wave", fallbackMotion = "hop") {
     );
 
     /*
-      杩欓噷鎶?sprite 鏄剧ず鍒板拰褰撳墠绔嬬粯鐨勬湭缂╂斁楂樺害涓€鑷淬€?
-      鐒跺悗鐢?#scene 鐨?scale 缁熶竴鎺у埗杩蜂綘/灏?姝ｅ父/澶с€?
-      杩欐牱涓嶄細閲嶅缂╂斁銆?
+      这里把 sprite 显示到和当前立绘的未缩放高度一致。
+      然后由 #scene 的 scale 统一控制迷你/小/正常/大。
+      这样不会重复缩放。
     */
     const visualHeight = unscaledPetHeight;
     const visualWidth = Math.round(
@@ -766,7 +756,7 @@ function updateSpriteFrame(frameWidth) {
 }
 
 /* =========================
-   CSS 灏忓姩浣?
+   CSS 小动作
 ========================= */
 
 function playPetMotion(motionName = "hop") {
@@ -786,7 +776,7 @@ function playPetMotion(motionName = "hop") {
 }
 
 /* =========================
-   鍙拌瘝绯荤粺
+   台词系统
 ========================= */
 
 function showRandomLine() {
@@ -805,10 +795,10 @@ function showRandomLine() {
   const line = lines[randomIndex];
 
   /*
-    鐐瑰嚮璇磋瘽锛?
-    1. 涓存椂鍒囨崲涓烘€濊€?
-    2. 鏈?wave.png 鏃舵挱鏀炬尌鎵?sprite
-    3. 娌℃湁 wave.png 鏃跺洖閫€涓鸿交杞昏烦涓€涓?
+    点击说话：
+    1. 临时切换为思考
+    2. 有 wave.png 时播放挥手 sprite
+    3. 没有 wave.png 时回退为轻轻跳一下
   */
   showLine(line, {
     expression: "thinking",
@@ -818,8 +808,8 @@ function showRandomLine() {
 }
 
 /*
-  showLine 榛樿涓嶅己鍒跺垏琛ㄦ儏銆?
-  鍙湁 options.expression 瀛樺湪鏃讹紝鎵嶄复鏃跺垏鎹㈣〃鎯呫€?
+  showLine 默认不强制切表情。
+  只有 options.expression 存在时，才临时切换表情。
 */
 function showLine(line, options = {}) {
   let displayLine = line;
@@ -905,7 +895,7 @@ function updateCloudSizeByText(text) {
 }
 
 /* =========================
-   鎻愰啋绯荤粺
+   提醒系统
 ========================= */
 
 function startReminderSystem() {
@@ -994,7 +984,7 @@ function showReminderLine(item) {
 }
 
 /* =========================
-   灏哄鍙樺寲
+   尺寸变化
 ========================= */
 
 window.petAPI.onSetPetWidth((width) => {
@@ -1010,7 +1000,7 @@ window.petAPI.onSetPetWidth((width) => {
   if (currentBubbleText) {
     updateCloudSizeByText(currentBubbleText);
   } else {
-    updateCloudSizeByText("娴佽悿");
+    updateCloudSizeByText("流萤");
   }
 });
 
