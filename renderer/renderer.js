@@ -97,6 +97,7 @@ let isChatOpen = false;
 let isChatSending = false;
 let hasChatGreeting = false;
 let isBalanceLoading = false;
+let isLoadingMemoryMessages = false;
 
 const CHAT_MODE_STORAGE_KEY = "liuying.chat.mode";
 const CHAT_MEMORY_STORAGE_KEY = "liuying.chat.memoryMode";
@@ -682,7 +683,9 @@ function openChatPanel() {
   chatPanel.classList.add("show");
   refreshDeepSeekBalance();
 
-  if (!hasChatGreeting) {
+  if (getSelectedChatMemoryMode() === "on") {
+    loadLongTermMemoryMessages();
+  } else if (!hasChatGreeting) {
     appendChatMessage("assistant", "我在这里，想聊什么都可以。");
     hasChatGreeting = true;
   }
@@ -729,6 +732,104 @@ async function refreshDeepSeekBalance() {
   }
 }
 
+function clearChatMessages() {
+  if (!chatMessages) return;
+
+  chatMessages.textContent = "";
+}
+
+function getMemoryErrorMessage(error) {
+  const rawMessage = String(error?.message || error || "长期记忆读取失败。");
+  const marker = "Error invoking remote method 'get-long-term-memory': Error: ";
+
+  if (rawMessage.includes(marker)) {
+    return rawMessage.slice(rawMessage.indexOf(marker) + marker.length);
+  }
+
+  return rawMessage;
+}
+
+function getSessionHistoryErrorMessage(error) {
+  const rawMessage = String(error?.message || error || "本次会话读取失败。");
+  const marker =
+    "Error invoking remote method 'get-session-chat-history': Error: ";
+
+  if (rawMessage.includes(marker)) {
+    return rawMessage.slice(rawMessage.indexOf(marker) + marker.length);
+  }
+
+  return rawMessage;
+}
+
+async function loadSessionChatMessages() {
+  try {
+    const result = await window.petAPI.getSessionChatHistory();
+    const items = Array.isArray(result?.items) ? result.items : [];
+
+    clearChatMessages();
+
+    if (items.length === 0) {
+      appendChatMessage("assistant", "我在这里，想聊什么都可以。");
+      hasChatGreeting = true;
+      return;
+    }
+
+    appendChatMessage("system", "已切回本次会话记忆。");
+
+    items.forEach((item) => {
+      if (item.role === "user") {
+        appendChatMessage("user", item.content);
+      } else if (item.role === "assistant") {
+        appendChatMessage("assistant", item.content);
+      }
+    });
+
+    hasChatGreeting = true;
+  } catch (error) {
+    appendChatMessage("system", getSessionHistoryErrorMessage(error));
+  }
+}
+
+async function loadLongTermMemoryMessages() {
+  if (isLoadingMemoryMessages) return;
+
+  isLoadingMemoryMessages = true;
+
+  try {
+    const result = await window.petAPI.getLongTermMemory();
+    const items = Array.isArray(result?.items) ? result.items : [];
+
+    clearChatMessages();
+
+    if (items.length === 0) {
+      appendChatMessage("system", "还没有保存过长期记忆。");
+      hasChatGreeting = true;
+      return;
+    }
+
+    appendChatMessage(
+      "system",
+      `已载入长期记忆，最近 ${items.length} 轮。`
+    );
+
+    items.forEach((item) => {
+      if (item.user) {
+        appendChatMessage("user", item.user);
+      }
+
+      if (item.assistant) {
+        appendChatMessage("assistant", item.assistant, "长期记忆");
+      }
+    });
+
+    hasChatGreeting = true;
+  } catch (error) {
+    appendChatMessage("system", getMemoryErrorMessage(error));
+  } finally {
+    isLoadingMemoryMessages = false;
+  }
+}
+
 function initChatOptionState() {
   const storedMode = localStorage.getItem(CHAT_MODE_STORAGE_KEY);
   const storedMemoryMode = localStorage.getItem(CHAT_MEMORY_STORAGE_KEY);
@@ -757,6 +858,12 @@ function initChatOptionState() {
         CHAT_MEMORY_STORAGE_KEY,
         nextEnabled ? "on" : "off"
       );
+
+      if (nextEnabled) {
+        loadLongTermMemoryMessages();
+      } else {
+        loadSessionChatMessages();
+      }
     });
   }
 }
@@ -909,6 +1016,10 @@ async function sendChatMessage(message) {
       memoryEnabled: getSelectedChatMemoryMode() === "on"
     });
     const reply = result.reply || "我刚刚没有组织好语言。";
+
+    if (result.command === "new") {
+      clearChatMessages();
+    }
 
     appendChatMessage("assistant", reply, getCacheMetaText(result));
     showLine(getBubbleSummary(reply), {

@@ -25,6 +25,10 @@ contextBridge.exposeInMainWorld("petAPI", {
     return ipcRenderer.invoke("get-long-term-memory");
   },
 
+  getSessionChatHistory: () => {
+    return ipcRenderer.invoke("get-session-chat-history");
+  },
+
   onOpenChat: (callback) => {
     ipcRenderer.on("open-chat", () => {
       callback();

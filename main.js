@@ -298,6 +298,28 @@ function getLongTermMemorySnapshot() {
   };
 }
 
+function getSessionChatHistorySnapshot() {
+  const items = [];
+
+  for (let index = 0; index < chatHistory.length; index += 1) {
+    const message = chatHistory[index];
+
+    if (!message || typeof message.content !== "string") {
+      continue;
+    }
+
+    items.push({
+      role: message.role,
+      content: message.content
+    });
+  }
+
+  return {
+    count: items.length,
+    items
+  };
+}
+
 function writeLongTermMemory(memory) {
   const memoryPath = getLongTermMemoryPath();
 
@@ -1042,6 +1064,10 @@ ipcMain.handle("deepseek-balance", async () => {
 
 ipcMain.handle("get-long-term-memory", () => {
   return getLongTermMemorySnapshot();
+});
+
+ipcMain.handle("get-session-chat-history", () => {
+  return getSessionChatHistorySnapshot();
 });
 
 ipcMain.on("set-mouse-ignore", (_event, ignore) => {
