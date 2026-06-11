@@ -48,6 +48,29 @@
         </div>
       </div>
     </div>
+
+    <section id="chat-panel" aria-label="流萤聊天">
+      <header id="chat-header">
+        <div>
+          <div id="chat-title">流萤</div>
+          <div id="chat-subtitle">在线陪伴中</div>
+        </div>
+        <button id="chat-close" type="button" aria-label="关闭聊天">×</button>
+      </header>
+
+      <div id="chat-messages" aria-live="polite"></div>
+
+      <form id="chat-form">
+        <input
+          id="chat-input"
+          type="text"
+          maxlength="500"
+          autocomplete="off"
+          placeholder="想和流萤说什么？"
+        >
+        <button id="chat-send" type="submit">发送</button>
+      </form>
+    </section>
   </div>
 
   <script src="./renderer.js"></script>

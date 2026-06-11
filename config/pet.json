@@ -52,5 +52,10 @@
   "threshold": 80,
   "margin": 8,
   "animate": true
+},
+"api": {
+  "model": "deepseek-v4-flash",
+  "timeoutMs": 30000,
+  "maxHistoryTurns": 6
 }
 }

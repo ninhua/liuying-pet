@@ -7,6 +7,12 @@ const spritePet = document.getElementById("sprite-pet");
 const speechBubble = document.getElementById("speech-bubble");
 const bubbleText = document.getElementById("bubble-text");
 const thoughtDots = document.getElementById("thought-dots");
+const chatPanel = document.getElementById("chat-panel");
+const chatForm = document.getElementById("chat-form");
+const chatInput = document.getElementById("chat-input");
+const chatSend = document.getElementById("chat-send");
+const chatClose = document.getElementById("chat-close");
+const chatMessages = document.getElementById("chat-messages");
 
 let petConfig = {
   name: "流萤",
@@ -83,6 +89,10 @@ let lastMouseIgnore = true;
 let petHitCanvas = null;
 let petHitCtx = null;
 let petHitReady = false;
+
+let isChatOpen = false;
+let isChatSending = false;
+let hasChatGreeting = false;
 
 const IDLE_MOTION_CLASSES = [
   "idle-motion-normal",
@@ -314,6 +324,11 @@ function buildPetHitCanvas() {
 petRoot.addEventListener("mousedown", (event) => {
   if (event.button !== 0) return;
 
+  if (isInsideChatPanelElement(event.target)) {
+    setMouseIgnoreIfChanged(false);
+    return;
+  }
+
   event.preventDefault();
 
   stopSpriteMotion();
@@ -449,9 +464,20 @@ if (window.petAPI.onPetAction) {
   });
 }
 
+if (window.petAPI.onOpenChat) {
+  window.petAPI.onOpenChat(() => {
+    openChatPanel();
+  });
+}
+
 function handlePetAction(actionName) {
   if (actionName === "talk") {
     showRandomLine();
+    return;
+  }
+
+  if (actionName === "open-chat") {
+    openChatPanel();
     return;
   }
 
@@ -503,13 +529,28 @@ function updateMouseIgnoreState(mouseX, mouseY) {
     return;
   }
 
+  const insideChatPanel = isInsideChatPanelVisibleArea(mouseX, mouseY);
   const insidePetVisiblePixel = isInsidePetVisiblePixel(mouseX, mouseY);
   const insideBubble = isInsideBubbleVisibleArea(mouseX, mouseY);
 
-  const shouldAcceptMouse = insidePetVisiblePixel || insideBubble;
+  const shouldAcceptMouse = insideChatPanel || insidePetVisiblePixel || insideBubble;
   const shouldIgnoreMouse = !shouldAcceptMouse;
 
   setMouseIgnoreIfChanged(shouldIgnoreMouse);
+}
+
+function isInsideChatPanelElement(target) {
+  return Boolean(chatPanel && target && chatPanel.contains(target));
+}
+
+function isInsideChatPanelVisibleArea(mouseX, mouseY) {
+  if (!isChatOpen || !chatPanel) {
+    return false;
+  }
+
+  const rect = chatPanel.getBoundingClientRect();
+
+  return isInsideRect(mouseX, mouseY, rect);
 }
 
 function isInsidePetVisiblePixel(mouseX, mouseY) {
@@ -620,6 +661,178 @@ function isInsideRect(x, y, rect) {
     y >= rect.top &&
     y <= rect.bottom
   );
+}
+
+/* =========================
+   DeepSeek 聊天面板
+========================= */
+
+function openChatPanel() {
+  if (!chatPanel) return;
+
+  isChatOpen = true;
+  chatPanel.classList.add("show");
+
+  if (!hasChatGreeting) {
+    appendChatMessage("assistant", "我在这里，想聊什么都可以。");
+    hasChatGreeting = true;
+  }
+
+  setMouseIgnoreIfChanged(false);
+
+  setTimeout(() => {
+    setMouseIgnoreIfChanged(false);
+
+    if (chatInput) {
+      chatInput.focus();
+    }
+  }, 80);
+}
+
+function closeChatPanel() {
+  if (!chatPanel) return;
+
+  isChatOpen = false;
+  chatPanel.classList.remove("show");
+  setMouseIgnoreIfChanged(true);
+}
+
+function setChatSending(nextSending) {
+  isChatSending = nextSending;
+
+  if (chatInput) {
+    chatInput.disabled = nextSending;
+  }
+
+  if (chatSend) {
+    chatSend.disabled = nextSending;
+    chatSend.textContent = nextSending ? "发送中" : "发送";
+  }
+}
+
+function appendChatMessage(role, text, metaText = "") {
+  if (!chatMessages) return;
+
+  const item = document.createElement("div");
+  item.className = `chat-message ${role}`;
+
+  const textNode = document.createElement("div");
+  textNode.className = "chat-message-text";
+  textNode.textContent = text;
+
+  item.appendChild(textNode);
+
+  if (metaText) {
+    const meta = document.createElement("div");
+    meta.className = "chat-message-meta";
+    meta.textContent = metaText;
+    item.appendChild(meta);
+  }
+
+  chatMessages.appendChild(item);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function getChatErrorMessage(error) {
+  const rawMessage = String(error?.message || error || "聊天请求失败。");
+  const marker = "Error invoking remote method 'deepseek-chat': Error: ";
+
+  if (rawMessage.includes(marker)) {
+    return rawMessage.slice(rawMessage.indexOf(marker) + marker.length);
+  }
+
+  return rawMessage;
+}
+
+function getBubbleSummary(text) {
+  const normalized = String(text || "").replace(/\s+/g, " ").trim();
+
+  if (Array.from(normalized).length <= 32) {
+    return normalized;
+  }
+
+  return Array.from(normalized).slice(0, 32).join("") + "……";
+}
+
+function getCacheMetaText(result) {
+  const usage = result?.usage;
+
+  if (!usage) {
+    return "";
+  }
+
+  const hitTokens = Number(usage.promptCacheHitTokens || 0);
+  const missTokens = Number(usage.promptCacheMissTokens || 0);
+  const total = hitTokens + missTokens;
+
+  if (total <= 0) {
+    return "";
+  }
+
+  const hitRate = ((hitTokens / total) * 100).toFixed(1);
+
+  return `缓存命中 ${hitRate}%`;
+}
+
+async function sendChatMessage(message) {
+  if (isChatSending) return;
+
+  const trimmedMessage = message.trim();
+
+  if (!trimmedMessage) {
+    appendChatMessage("system", "先输入一句话再发送。");
+    return;
+  }
+
+  appendChatMessage("user", trimmedMessage);
+  setChatSending(true);
+  showLine("我想一下。", {
+    expression: "thinking",
+    expressionDurationMs: 3500
+  });
+
+  try {
+    const result = await window.petAPI.sendChatMessage(trimmedMessage);
+    const reply = result.reply || "我刚刚没有组织好语言。";
+
+    appendChatMessage("assistant", reply, getCacheMetaText(result));
+    showLine(getBubbleSummary(reply), {
+      expression: "happy",
+      expressionDurationMs: 3500
+    });
+  } catch (error) {
+    const message = getChatErrorMessage(error);
+
+    appendChatMessage("system", message);
+    showLine("聊天请求失败啦。", {
+      expression: "thinking",
+      expressionDurationMs: 3500
+    });
+  } finally {
+    setChatSending(false);
+
+    if (chatInput) {
+      chatInput.focus();
+    }
+  }
+}
+
+if (chatForm) {
+  chatForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+
+    if (!chatInput) return;
+
+    const message = chatInput.value;
+    chatInput.value = "";
+    sendChatMessage(message);
+  });
+}
+
+if (chatClose) {
+  chatClose.addEventListener("click", () => {
+    closeChatPanel();
+  });
 }
 
 /* =========================

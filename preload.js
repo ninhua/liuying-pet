@@ -13,6 +13,16 @@ contextBridge.exposeInMainWorld("petAPI", {
     ipcRenderer.send("show-context-menu");
   },
 
+  sendChatMessage: (message) => {
+    return ipcRenderer.invoke("deepseek-chat", message);
+  },
+
+  onOpenChat: (callback) => {
+    ipcRenderer.on("open-chat", () => {
+      callback();
+    });
+  },
+
   onSetPetWidth: (callback) => {
     ipcRenderer.on("set-pet-width", (_event, width) => {
       callback(width);
