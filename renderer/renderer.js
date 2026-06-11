@@ -9,10 +9,10 @@ const bubbleText = document.getElementById("bubble-text");
 const thoughtDots = document.getElementById("thought-dots");
 
 let petConfig = {
-  name: "娴佽悿",
+  name: "流萤",
   lines: [
-    "浠婂ぉ涔熻濂藉ソ瀛︿範鍝︺€?,
-    "涓嶈鎬ワ紝鎴戜滑涓€姝ヤ竴姝ユ潵銆?
+    "今天也要好好学习哦。",
+    "不要急，我们一步一步来。"
   ],
   reminders: {
     enabled: false,
@@ -111,15 +111,15 @@ async function initPet() {
     remindersRuntimeEnabled = petConfig.reminders?.enabled === true;
 
     setExpression("normal");
-    showLine(`${petConfig.name} 宸蹭笂绾裤€俙);
+    showLine(`${petConfig.name} 已上线。`);
 
     startReminderSystem();
 
     window.petAPI.setMouseIgnore(true);
     lastMouseIgnore = true;
   } catch (error) {
-    console.error("璇诲彇妗屽疇閰嶇疆澶辫触锛?, error);
-    showLine("閰嶇疆璇诲彇澶辫触鍟︼紝浣嗘垜杩樻槸鍦ㄣ€?);
+    console.error("读取桌宠配置失败：", error);
+    showLine("配置读取失败，但我还是在。");
   }
 }
 
@@ -297,13 +297,13 @@ function buildPetHitCanvas() {
 
     petHitReady = true;
 
-    console.log("瑙掕壊閫忔槑鍍忕礌妫€娴嬪凡鍑嗗濂姐€?);
+    console.log("角色透明像素检测已准备好。");
   } catch (error) {
     petHitReady = false;
     petHitCanvas = null;
     petHitCtx = null;
 
-    console.warn("瑙掕壊閫忔槑鍍忕礌妫€娴嬪垵濮嬪寲澶辫触锛屽皢浣跨敤澶囩敤鐐瑰嚮鑼冨洿锛?, error);
+    console.warn("角色透明像素检测初始化失败，将使用备用点击范围：", error);
   }
 }
 
@@ -336,6 +336,16 @@ petRoot.addEventListener("mousedown", (event) => {
 
   speechBubble.classList.remove("show");
   speechBubble.classList.add("dragging");
+});
+
+petRoot.addEventListener("contextmenu", (event) => {
+  event.preventDefault();
+
+  if (isMouseDown) {
+    cancelMouseDrag();
+  }
+
+  window.petAPI.showContextMenu();
 });
 
 document.addEventListener("mousemove", (event) => {
@@ -457,13 +467,13 @@ function handlePetAction(actionName) {
 
   if (actionName === "reset-position") {
     resetSceneInitialPosition();
-    showLine("鎴戝洖鍒伴粯璁や綅缃暒銆?);
+    showLine("我回到默认位置啦。");
     return;
   }
 
   if (actionName === "snap-left-bottom") {
     moveSceneToLeftBottom();
-    showLine("鎴戝埌宸︿笅瑙掑暒銆?);
+    showLine("我到左下角啦。");
     return;
   }
 
@@ -474,25 +484,25 @@ function handlePetAction(actionName) {
 
   if (actionName === "expression-normal") {
     setExpression("normal");
-    showLine("鎴戞仮澶嶆櫘閫氱姸鎬佸暒銆?);
+    showLine("我恢复普通状态啦。");
     return;
   }
 
   if (actionName === "expression-happy") {
     setExpression("happy");
-    showLine("鍢垮樋锛屾垜寰堝紑蹇冦€?);
+    showLine("嘿嘿，我很开心。");
     return;
   }
 
   if (actionName === "expression-thinking") {
     setExpression("thinking");
-    showLine("鎴戞鍦ㄨ鐪熸€濊€冦€?);
+    showLine("我正在认真思考。");
     return;
   }
 
   if (actionName === "expression-sleepy") {
     setExpression("sleepy");
-    showLine("鏈夌偣鍥板洶鐨勨€︹€?);
+    showLine("有点困困的……");
     return;
   }
 }
@@ -551,7 +561,7 @@ function isInsidePetVisiblePixel(mouseX, mouseY) {
 
     return alpha > 12;
   } catch (error) {
-    console.warn("閫忔槑鍍忕礌妫€娴嬪け璐ワ紝浣跨敤澶囩敤鐐瑰嚮鑼冨洿锛?, error);
+    console.warn("透明像素检测失败，使用备用点击范围：", error);
     return isInsideRect(mouseX, mouseY, getFallbackPetHitRect(rect));
   }
 }
@@ -739,7 +749,7 @@ function playSpriteMotion(motionName = "wave", fallbackMotion = "hop") {
   testImage.onerror = () => {
     if (token !== spritePlayToken) return;
 
-    console.warn(`娌℃湁鎵惧埌 sprite 鍔ㄤ綔鍥撅細${sprite.src}锛屽凡鍥為€€涓?CSS 灏忓姩浣溿€俙);
+    console.warn(`没有找到 sprite 动作图：${sprite.src}，已回退为 CSS 小动作。`);
     stopSpriteMotion();
     playPetMotion(fallbackMotion);
   };
@@ -783,7 +793,7 @@ function showRandomLine() {
   const lines = petConfig.lines || [];
 
   if (lines.length === 0) {
-    showLine("鎴戣繕娌℃湁鍙拌瘝鍛€?, {
+    showLine("我还没有台词呢。", {
       expression: "thinking",
       expressionDurationMs: 3500,
       motion: "wave"
@@ -815,7 +825,7 @@ function showLine(line, options = {}) {
   let displayLine = line;
 
   if (Array.from(displayLine).length > 32) {
-    displayLine = Array.from(displayLine).slice(0, 32).join("") + "鈥︹€?;
+    displayLine = Array.from(displayLine).slice(0, 32).join("") + "……";
   }
 
   currentBubbleText = displayLine;
@@ -904,14 +914,14 @@ function startReminderSystem() {
   const reminders = petConfig.reminders;
 
   if (!reminders || reminders.enabled !== true || remindersRuntimeEnabled !== true) {
-    console.log("鎻愰啋鍔熻兘鏈紑鍚€?);
+    console.log("提醒功能未开启。");
     return;
   }
 
   const items = reminders.items || [];
 
   if (items.length === 0) {
-    console.log("娌℃湁閰嶇疆鎻愰啋鍐呭銆?);
+    console.log("没有配置提醒内容。");
     return;
   }
 
@@ -935,7 +945,7 @@ function startReminderSystem() {
     reminderTimers.push(firstTimer);
 
     console.log(
-      `宸插惎鍔ㄦ彁閱掞細${item.name || "鏈懡鍚嶆彁閱?}锛?{firstDelaySeconds} 绉掑悗棣栨鎻愰啋锛屼箣鍚庢瘡 ${intervalMinutes} 鍒嗛挓鎻愰啋涓€娆°€俙
+      `已启动提醒：${item.name || "未命名提醒"}，${firstDelaySeconds} 秒后首次提醒，之后每 ${intervalMinutes} 分钟提醒一次。`
     );
   });
 }
@@ -954,10 +964,10 @@ function toggleReminderSystem() {
 
   if (remindersRuntimeEnabled) {
     startReminderSystem();
-    showLine("鎻愰啋鍔熻兘宸插紑鍚€?);
+    showLine("提醒功能已开启。");
   } else {
     stopReminderSystem();
-    showLine("鎻愰啋鍔熻兘宸插叧闂€?);
+    showLine("提醒功能已关闭。");
   }
 }
 
@@ -965,7 +975,7 @@ function showReminderLine(item) {
   const lines = item.lines || [];
 
   if (lines.length === 0) {
-    showLine("璇ヤ紤鎭竴涓嬪暒銆?, {
+    showLine("该休息一下啦。", {
       expression: "thinking",
       expressionDurationMs: 3500,
       motion: "wiggle"

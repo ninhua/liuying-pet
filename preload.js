@@ -9,6 +9,10 @@ contextBridge.exposeInMainWorld("petAPI", {
     ipcRenderer.send("set-mouse-ignore", ignore);
   },
 
+  showContextMenu: () => {
+    ipcRenderer.send("show-context-menu");
+  },
+
   onSetPetWidth: (callback) => {
     ipcRenderer.on("set-pet-width", (_event, width) => {
       callback(width);
