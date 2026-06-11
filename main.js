@@ -31,8 +31,9 @@ const DEFAULT_CHAT_TIMEOUT_MS = 30000;
 const DEFAULT_MAX_HISTORY_TURNS = 6;
 const CHAT_USER_ID = "liuying-desktop-local";
 const DEEPSEEK_LOG_DIR = path.join(__dirname, "logs");
+const PERSONA_PROMPT_PATH = path.join(__dirname, "config", "persona.md");
 
-const SYSTEM_PROMPT = [
+const FALLBACK_SYSTEM_PROMPT = [
   "你是用户的 Windows 桌面宠物“流萤”。",
   "你的性格温柔、可爱、会陪用户学习和写论文，但偶尔会轻轻吐槽。",
   "请始终使用简体中文回复。",
@@ -44,6 +45,20 @@ const SYSTEM_PROMPT = [
 loadLocalEnvFile();
 
 let chatHistory = [];
+
+function readPersonaPrompt() {
+  try {
+    const prompt = fs.readFileSync(PERSONA_PROMPT_PATH, "utf-8").trim();
+
+    if (prompt) {
+      return prompt;
+    }
+  } catch (error) {
+    console.error("Failed to read persona.md, using fallback persona:", error);
+  }
+
+  return FALLBACK_SYSTEM_PROMPT;
+}
 
 function loadLocalEnvFile() {
   const envPath = path.join(__dirname, ".env");
@@ -272,7 +287,7 @@ async function sendDeepSeekChat(rawInput) {
   const messages = [
     {
       role: "system",
-      content: SYSTEM_PROMPT
+      content: readPersonaPrompt()
     },
     ...chatHistory,
     nextUserMessage

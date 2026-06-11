@@ -11,6 +11,7 @@
 - 右键菜单切换尺寸、表情和互动功能
 - 气泡台词和定时提醒
 - DeepSeek 聊天面板，支持本地 `.env` 配置 API Key
+- 可通过 `config/persona.md` 调整流萤聊天人格设定
 - DeepSeek 请求日志写入 `logs/`，该目录不会提交到 Git
 
 ## 环境要求
@@ -64,6 +65,14 @@ DEEPSEEK_API_KEY=你的 DeepSeek API Key
 - `/flash 你好`：使用 flash 模型
 - `/pro 帮我想一句提醒`：使用 pro 模型
 
+流萤的聊天人格提示词位于：
+
+```text
+config/persona.md
+```
+
+如果该文件读取失败，程序会使用 `main.js` 中的备用人格提示词。
+
 ## 使用方式
 
 - 鼠标移到流萤可见像素区域后，窗口会接收点击。
@@ -82,6 +91,7 @@ renderer/style.css      桌宠、气泡和聊天面板样式
 renderer/renderer.js    桌宠交互、动画、提醒和聊天 UI
 assets/                 立绘和动作资源
 config/pet.json         桌宠台词、提醒、尺寸和 API 配置
+config/persona.md       DeepSeek 聊天人格提示词
 start.cmd               Windows 快速启动脚本
 ```
 
