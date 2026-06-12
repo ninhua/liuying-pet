@@ -35,6 +35,7 @@ const DEEPSEEK_LOG_DIR = path.join(__dirname, "logs");
 const PERSONA_PROMPT_PATH = path.join(__dirname, "config", "persona.md");
 const DEFAULT_CHAT_LOCATION = "中国";
 const LONG_TERM_MEMORY_LIMIT = 20;
+const CHINA_TIME_ZONE = "Asia/Shanghai";
 const DEEPSEEK_PRICE_BY_MODEL = {
   "deepseek-v4-flash": {
     cacheHitInputCnyPerMillion: 0.02,
@@ -246,6 +247,7 @@ function resolveModel(message, settings, requestedMode) {
 function getRuntimeContext(settings) {
   const now = new Date();
   const formatter = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: CHINA_TIME_ZONE,
     dateStyle: "full",
     timeStyle: "medium",
     hour12: false
@@ -254,7 +256,7 @@ function getRuntimeContext(settings) {
   return [
     "当前运行上下文：",
     `- 当前日期时间：${formatter.format(now)}`,
-    `- 时区：${Intl.DateTimeFormat().resolvedOptions().timeZone || "本地时区"}`,
+    `- 时区：${CHINA_TIME_ZONE}`,
     `- 位置：${settings.location}`,
     "- 以上上下文由本地配置提供；如果用户提供了更精确的信息，以用户消息为准。"
   ].join("\n");
@@ -310,7 +312,8 @@ function getSessionChatHistorySnapshot() {
 
     items.push({
       role: message.role,
-      content: message.content
+      content: message.content,
+      createdAt: message.createdAt || ""
     });
   }
 
@@ -342,7 +345,7 @@ function appendLongTermMemory(userMessage, assistantMessage) {
   const memory = readLongTermMemory();
 
   memory.push({
-    savedAt: new Date().toISOString(),
+    savedAt: getChinaDateTimeString(),
     user: userMessage,
     assistant: assistantMessage
   });
@@ -367,7 +370,7 @@ function saveCurrentChatHistoryToLongTermMemory() {
       assistantMessage?.role === "assistant"
     ) {
       memory.push({
-        savedAt: new Date().toISOString(),
+        savedAt: getChinaDateTimeString(),
         user: userMessage.content,
         assistant: assistantMessage.content
       });
@@ -541,12 +544,38 @@ function logDeepSeekCost(cost) {
   );
 }
 
-function getLocalDateString(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+function getChinaDateTimeParts(date = new Date()) {
+  const formatter = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: CHINA_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  });
+  const parts = {};
 
-  return `${year}-${month}-${day}`;
+  formatter.formatToParts(date).forEach((part) => {
+    if (part.type !== "literal") {
+      parts[part.type] = part.value;
+    }
+  });
+
+  return parts;
+}
+
+function getChinaDateString(date = new Date()) {
+  const parts = getChinaDateTimeParts(date);
+
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function getChinaDateTimeString(date = new Date()) {
+  const parts = getChinaDateTimeParts(date);
+
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
 }
 
 function writeDeepSeekApiLog(entry) {
@@ -555,10 +584,11 @@ function writeDeepSeekApiLog(entry) {
       recursive: true
     });
 
-    const logDate = getLocalDateString();
+    const logDate = getChinaDateString();
     const logPath = path.join(DEEPSEEK_LOG_DIR, `deepseek-${logDate}.jsonl`);
     const payload = {
-      loggedAt: new Date().toISOString(),
+      loggedAt: getChinaDateTimeString(),
+      timeZone: CHINA_TIME_ZONE,
       ...entry
     };
 
@@ -686,6 +716,7 @@ async function sendDeepSeekChat(rawInput) {
       memoryEnabled: false,
       command: magicCommandResult.command,
       savedCount: magicCommandResult.savedCount || 0,
+      createdAt: getChinaDateTimeString(),
       usage: {
         promptCacheHitTokens: 0,
         promptCacheMissTokens: 0
@@ -705,7 +736,8 @@ async function sendDeepSeekChat(rawInput) {
 
   const nextUserMessage = {
     role: "user",
-    content: message
+    content: message,
+    createdAt: getChinaDateTimeString()
   };
   const runtimeContext = getRuntimeContext(settings);
   const longTermMemory = input.memoryEnabled ? readLongTermMemory() : [];
@@ -797,6 +829,7 @@ async function sendDeepSeekChat(rawInput) {
     }
 
     let reply = getDeepSeekReply(data);
+    const responseCreatedAt = getChinaDateTimeString();
 
     if (!reply) {
       console.warn(
@@ -808,7 +841,8 @@ async function sendDeepSeekChat(rawInput) {
     chatHistory.push(nextUserMessage);
     chatHistory.push({
       role: "assistant",
-      content: reply
+      content: reply,
+      createdAt: responseCreatedAt
     });
 
     if (input.memoryEnabled) {
@@ -824,6 +858,7 @@ async function sendDeepSeekChat(rawInput) {
       mode: modelResult.mode,
       memoryEnabled: input.memoryEnabled,
       estimatedCost,
+      createdAt: responseCreatedAt,
       usage: {
         promptCacheHitTokens: Number(data.usage?.prompt_cache_hit_tokens || 0),
         promptCacheMissTokens: Number(data.usage?.prompt_cache_miss_tokens || 0)

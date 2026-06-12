@@ -778,9 +778,9 @@ async function loadSessionChatMessages() {
 
     items.forEach((item) => {
       if (item.role === "user") {
-        appendChatMessage("user", item.content);
+        appendChatMessage("user", item.content, item.createdAt || "");
       } else if (item.role === "assistant") {
-        appendChatMessage("assistant", item.content);
+        appendChatMessage("assistant", item.content, item.createdAt || "");
       }
     });
 
@@ -818,7 +818,11 @@ async function loadLongTermMemoryMessages() {
       }
 
       if (item.assistant) {
-        appendChatMessage("assistant", item.assistant, "长期记忆");
+        appendChatMessage(
+          "assistant",
+          item.assistant,
+          ["长期记忆", item.savedAt].filter(Boolean).join(" · ")
+        );
       }
     });
 
@@ -946,6 +950,10 @@ function getBubbleSummary(text) {
 
 function getCacheMetaText(result) {
   const parts = [];
+
+  if (result?.createdAt) {
+    parts.push(result.createdAt);
+  }
 
   if (result?.mode === "command") {
     parts.push("魔法指令");
