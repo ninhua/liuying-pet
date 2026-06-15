@@ -87,6 +87,7 @@ DEEPSEEK_API_KEY=你的 DeepSeek API Key
 
 - `思考`：使用 pro 模式
 - `长期记忆`：会载入已保存的记忆，并在发送时把当前对话保存到本机用户数据目录，供后续聊天继续参考
+- 关闭 `长期记忆`：切回本次会话的聊天记录
 - `余额`：刷新 DeepSeek 余额信息
 
 聊天记录里会显示本地时间戳，默认按 `Asia/Shanghai` 生成。
@@ -103,6 +104,10 @@ config/persona.md
 启用长期记忆时，聊天历史会持久化到本机用户数据目录下的 `long-term-memory.json`，并保留每条记录的保存时间。
 
 DeepSeek 请求日志也会使用 `Asia/Shanghai` 时区写入文件名和时间戳。
+
+## 后续规划
+
+项目根目录的 `ROADMAP.md` 记录了当前功能进度和后续优先级，包括配置驱动增强、状态机整理、记忆管理 UI 和 Live2D 预研。
 
 ## 使用方式
 
@@ -123,6 +128,7 @@ renderer/renderer.js    桌宠交互、动画、提醒和聊天 UI
 assets/                 立绘和动作资源
 config/pet.json         桌宠台词、提醒、尺寸和 API 配置
 config/persona.md       DeepSeek 聊天人格提示词
+ROADMAP.md              后续功能规划
 start.cmd               Windows 快速启动脚本
 ```
 
