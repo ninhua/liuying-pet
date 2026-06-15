@@ -52,5 +52,14 @@
   "threshold": 80,
   "margin": 8,
   "animate": true
+},
+"api": {
+  "model": "deepseek-v4-flash",
+  "mode": "flash",
+  "timeoutMs": 30000,
+  "maxHistoryTurns": 6
+},
+"context": {
+  "location": "中国"
 }
 }

@@ -13,6 +13,28 @@ contextBridge.exposeInMainWorld("petAPI", {
     ipcRenderer.send("show-context-menu");
   },
 
+  sendChatMessage: (message) => {
+    return ipcRenderer.invoke("deepseek-chat", message);
+  },
+
+  getDeepSeekBalance: () => {
+    return ipcRenderer.invoke("deepseek-balance");
+  },
+
+  getLongTermMemory: () => {
+    return ipcRenderer.invoke("get-long-term-memory");
+  },
+
+  getSessionChatHistory: () => {
+    return ipcRenderer.invoke("get-session-chat-history");
+  },
+
+  onOpenChat: (callback) => {
+    ipcRenderer.on("open-chat", () => {
+      callback();
+    });
+  },
+
   onSetPetWidth: (callback) => {
     ipcRenderer.on("set-pet-width", (_event, width) => {
       callback(width);

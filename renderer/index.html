@@ -48,6 +48,46 @@
         </div>
       </div>
     </div>
+
+    <section id="chat-panel" aria-label="流萤聊天">
+      <header id="chat-header">
+        <div>
+          <div id="chat-title">流萤</div>
+          <div id="chat-subtitle">在线陪伴中</div>
+        </div>
+        <div id="chat-header-actions">
+          <button id="chat-balance" type="button" title="刷新 DeepSeek 余额">余额 --</button>
+          <button id="chat-close" type="button" aria-label="关闭聊天">×</button>
+        </div>
+      </header>
+
+      <div id="chat-messages" aria-live="polite"></div>
+
+      <form id="chat-form">
+        <div id="chat-options">
+          <button
+            id="chat-thinking-toggle"
+            class="chat-toggle-option"
+            type="button"
+            aria-pressed="false"
+          >思考</button>
+          <button
+            id="chat-memory-toggle"
+            class="chat-toggle-option"
+            type="button"
+            aria-pressed="false"
+          >长期记忆</button>
+        </div>
+        <input
+          id="chat-input"
+          type="text"
+          maxlength="500"
+          autocomplete="off"
+          placeholder="想和流萤说什么？"
+        >
+        <button id="chat-send" type="submit">发送</button>
+      </form>
+    </section>
   </div>
 
   <script src="./renderer.js"></script>

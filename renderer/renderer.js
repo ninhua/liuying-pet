@@ -7,6 +7,15 @@ const spritePet = document.getElementById("sprite-pet");
 const speechBubble = document.getElementById("speech-bubble");
 const bubbleText = document.getElementById("bubble-text");
 const thoughtDots = document.getElementById("thought-dots");
+const chatPanel = document.getElementById("chat-panel");
+const chatForm = document.getElementById("chat-form");
+const chatInput = document.getElementById("chat-input");
+const chatSend = document.getElementById("chat-send");
+const chatBalance = document.getElementById("chat-balance");
+const chatClose = document.getElementById("chat-close");
+const chatMessages = document.getElementById("chat-messages");
+const chatThinkingToggle = document.getElementById("chat-thinking-toggle");
+const chatMemoryToggle = document.getElementById("chat-memory-toggle");
 
 let petConfig = {
   name: "流萤",
@@ -84,6 +93,15 @@ let petHitCanvas = null;
 let petHitCtx = null;
 let petHitReady = false;
 
+let isChatOpen = false;
+let isChatSending = false;
+let hasChatGreeting = false;
+let isBalanceLoading = false;
+let isLoadingMemoryMessages = false;
+
+const CHAT_MODE_STORAGE_KEY = "liuying.chat.mode";
+const CHAT_MEMORY_STORAGE_KEY = "liuying.chat.memoryMode";
+
 const IDLE_MOTION_CLASSES = [
   "idle-motion-normal",
   "idle-motion-happy",
@@ -103,6 +121,7 @@ function getFallbackPetHitRect(rect) {
 async function initPet() {
   try {
     buildPetHitCanvas();
+    initChatOptionState();
     resetSceneInitialPosition();
 
     petConfig = await window.petAPI.getPetConfig();
@@ -314,6 +333,11 @@ function buildPetHitCanvas() {
 petRoot.addEventListener("mousedown", (event) => {
   if (event.button !== 0) return;
 
+  if (isInsideChatPanelElement(event.target)) {
+    setMouseIgnoreIfChanged(false);
+    return;
+  }
+
   event.preventDefault();
 
   stopSpriteMotion();
@@ -449,9 +473,20 @@ if (window.petAPI.onPetAction) {
   });
 }
 
+if (window.petAPI.onOpenChat) {
+  window.petAPI.onOpenChat(() => {
+    openChatPanel();
+  });
+}
+
 function handlePetAction(actionName) {
   if (actionName === "talk") {
     showRandomLine();
+    return;
+  }
+
+  if (actionName === "open-chat") {
+    openChatPanel();
     return;
   }
 
@@ -503,13 +538,28 @@ function updateMouseIgnoreState(mouseX, mouseY) {
     return;
   }
 
+  const insideChatPanel = isInsideChatPanelVisibleArea(mouseX, mouseY);
   const insidePetVisiblePixel = isInsidePetVisiblePixel(mouseX, mouseY);
   const insideBubble = isInsideBubbleVisibleArea(mouseX, mouseY);
 
-  const shouldAcceptMouse = insidePetVisiblePixel || insideBubble;
+  const shouldAcceptMouse = insideChatPanel || insidePetVisiblePixel || insideBubble;
   const shouldIgnoreMouse = !shouldAcceptMouse;
 
   setMouseIgnoreIfChanged(shouldIgnoreMouse);
+}
+
+function isInsideChatPanelElement(target) {
+  return Boolean(chatPanel && target && chatPanel.contains(target));
+}
+
+function isInsideChatPanelVisibleArea(mouseX, mouseY) {
+  if (!isChatOpen || !chatPanel) {
+    return false;
+  }
+
+  const rect = chatPanel.getBoundingClientRect();
+
+  return isInsideRect(mouseX, mouseY, rect);
 }
 
 function isInsidePetVisiblePixel(mouseX, mouseY) {
@@ -620,6 +670,409 @@ function isInsideRect(x, y, rect) {
     y >= rect.top &&
     y <= rect.bottom
   );
+}
+
+/* =========================
+   DeepSeek 聊天面板
+========================= */
+
+function openChatPanel() {
+  if (!chatPanel) return;
+
+  isChatOpen = true;
+  chatPanel.classList.add("show");
+  refreshDeepSeekBalance();
+
+  if (getSelectedChatMemoryMode() === "on") {
+    loadLongTermMemoryMessages();
+  } else if (!hasChatGreeting) {
+    appendChatMessage("assistant", "我在这里，想聊什么都可以。");
+    hasChatGreeting = true;
+  }
+
+  setMouseIgnoreIfChanged(false);
+
+  setTimeout(() => {
+    setMouseIgnoreIfChanged(false);
+
+    if (chatInput) {
+      chatInput.focus();
+    }
+  }, 80);
+}
+
+function getBalanceErrorMessage(error) {
+  const rawMessage = String(error?.message || error || "余额查询失败。");
+  const marker = "Error invoking remote method 'deepseek-balance': Error: ";
+
+  if (rawMessage.includes(marker)) {
+    return rawMessage.slice(rawMessage.indexOf(marker) + marker.length);
+  }
+
+  return rawMessage;
+}
+
+async function refreshDeepSeekBalance() {
+  if (!chatBalance || isBalanceLoading) return;
+
+  isBalanceLoading = true;
+  chatBalance.disabled = true;
+  chatBalance.textContent = "余额 ...";
+
+  try {
+    const result = await window.petAPI.getDeepSeekBalance();
+    chatBalance.textContent = result?.text ? `余额 ${result.text}` : "余额未知";
+    chatBalance.title = "点击刷新 DeepSeek 余额";
+  } catch (error) {
+    chatBalance.textContent = "余额失败";
+    chatBalance.title = getBalanceErrorMessage(error);
+  } finally {
+    isBalanceLoading = false;
+    chatBalance.disabled = false;
+  }
+}
+
+function clearChatMessages() {
+  if (!chatMessages) return;
+
+  chatMessages.textContent = "";
+}
+
+function getMemoryErrorMessage(error) {
+  const rawMessage = String(error?.message || error || "长期记忆读取失败。");
+  const marker = "Error invoking remote method 'get-long-term-memory': Error: ";
+
+  if (rawMessage.includes(marker)) {
+    return rawMessage.slice(rawMessage.indexOf(marker) + marker.length);
+  }
+
+  return rawMessage;
+}
+
+function getSessionHistoryErrorMessage(error) {
+  const rawMessage = String(error?.message || error || "本次会话读取失败。");
+  const marker =
+    "Error invoking remote method 'get-session-chat-history': Error: ";
+
+  if (rawMessage.includes(marker)) {
+    return rawMessage.slice(rawMessage.indexOf(marker) + marker.length);
+  }
+
+  return rawMessage;
+}
+
+async function loadSessionChatMessages() {
+  try {
+    const result = await window.petAPI.getSessionChatHistory();
+    const items = Array.isArray(result?.items) ? result.items : [];
+
+    clearChatMessages();
+
+    if (items.length === 0) {
+      appendChatMessage("assistant", "我在这里，想聊什么都可以。");
+      hasChatGreeting = true;
+      return;
+    }
+
+    appendChatMessage("system", "已切回本次会话记忆。");
+
+    items.forEach((item) => {
+      if (item.role === "user") {
+        appendChatMessage("user", item.content, item.createdAt || "");
+      } else if (item.role === "assistant") {
+        appendChatMessage("assistant", item.content, item.createdAt || "");
+      }
+    });
+
+    hasChatGreeting = true;
+  } catch (error) {
+    appendChatMessage("system", getSessionHistoryErrorMessage(error));
+  }
+}
+
+async function loadLongTermMemoryMessages() {
+  if (isLoadingMemoryMessages) return;
+
+  isLoadingMemoryMessages = true;
+
+  try {
+    const result = await window.petAPI.getLongTermMemory();
+    const items = Array.isArray(result?.items) ? result.items : [];
+
+    clearChatMessages();
+
+    if (items.length === 0) {
+      appendChatMessage("system", "还没有保存过长期记忆。");
+      hasChatGreeting = true;
+      return;
+    }
+
+    appendChatMessage(
+      "system",
+      `已载入长期记忆，最近 ${items.length} 轮。`
+    );
+
+    items.forEach((item) => {
+      if (item.user) {
+        appendChatMessage("user", item.user);
+      }
+
+      if (item.assistant) {
+        appendChatMessage(
+          "assistant",
+          item.assistant,
+          ["长期记忆", item.savedAt].filter(Boolean).join(" · ")
+        );
+      }
+    });
+
+    hasChatGreeting = true;
+  } catch (error) {
+    appendChatMessage("system", getMemoryErrorMessage(error));
+  } finally {
+    isLoadingMemoryMessages = false;
+  }
+}
+
+function initChatOptionState() {
+  const storedMode = localStorage.getItem(CHAT_MODE_STORAGE_KEY);
+  const storedMemoryMode = localStorage.getItem(CHAT_MEMORY_STORAGE_KEY);
+
+  setToggleState(chatThinkingToggle, storedMode === "pro");
+  setToggleState(chatMemoryToggle, storedMemoryMode === "on");
+
+  if (chatThinkingToggle) {
+    chatThinkingToggle.addEventListener("click", () => {
+      const nextEnabled = !isToggleEnabled(chatThinkingToggle);
+
+      setToggleState(chatThinkingToggle, nextEnabled);
+      localStorage.setItem(
+        CHAT_MODE_STORAGE_KEY,
+        nextEnabled ? "pro" : "flash"
+      );
+    });
+  }
+
+  if (chatMemoryToggle) {
+    chatMemoryToggle.addEventListener("click", () => {
+      const nextEnabled = !isToggleEnabled(chatMemoryToggle);
+
+      setToggleState(chatMemoryToggle, nextEnabled);
+      localStorage.setItem(
+        CHAT_MEMORY_STORAGE_KEY,
+        nextEnabled ? "on" : "off"
+      );
+
+      if (nextEnabled) {
+        loadLongTermMemoryMessages();
+      } else {
+        loadSessionChatMessages();
+      }
+    });
+  }
+}
+
+function setToggleState(button, enabled) {
+  if (!button) return;
+
+  button.classList.toggle("active", enabled);
+  button.setAttribute("aria-pressed", enabled ? "true" : "false");
+}
+
+function isToggleEnabled(button) {
+  return button?.classList.contains("active") === true;
+}
+
+function closeChatPanel() {
+  if (!chatPanel) return;
+
+  isChatOpen = false;
+  chatPanel.classList.remove("show");
+  setMouseIgnoreIfChanged(true);
+}
+
+function setChatSending(nextSending) {
+  isChatSending = nextSending;
+
+  if (chatInput) {
+    chatInput.disabled = nextSending;
+  }
+
+  if (chatSend) {
+    chatSend.disabled = nextSending;
+    chatSend.textContent = nextSending ? "发送中" : "发送";
+  }
+}
+
+function appendChatMessage(role, text, metaText = "") {
+  if (!chatMessages) return;
+
+  const item = document.createElement("div");
+  item.className = `chat-message ${role}`;
+
+  const textNode = document.createElement("div");
+  textNode.className = "chat-message-text";
+  textNode.textContent = text;
+
+  item.appendChild(textNode);
+
+  if (metaText) {
+    const meta = document.createElement("div");
+    meta.className = "chat-message-meta";
+    meta.textContent = metaText;
+    item.appendChild(meta);
+  }
+
+  chatMessages.appendChild(item);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function getChatErrorMessage(error) {
+  const rawMessage = String(error?.message || error || "聊天请求失败。");
+  const marker = "Error invoking remote method 'deepseek-chat': Error: ";
+
+  if (rawMessage.includes(marker)) {
+    return rawMessage.slice(rawMessage.indexOf(marker) + marker.length);
+  }
+
+  return rawMessage;
+}
+
+function getBubbleSummary(text) {
+  const normalized = String(text || "").replace(/\s+/g, " ").trim();
+
+  if (Array.from(normalized).length <= 32) {
+    return normalized;
+  }
+
+  return Array.from(normalized).slice(0, 32).join("") + "……";
+}
+
+function getCacheMetaText(result) {
+  const parts = [];
+
+  if (result?.createdAt) {
+    parts.push(result.createdAt);
+  }
+
+  if (result?.mode === "command") {
+    parts.push("魔法指令");
+  } else if (result?.mode === "pro") {
+    parts.push("思考模式");
+  } else if (result?.mode === "flash") {
+    parts.push("非思考模式");
+  }
+
+  if (result?.memoryEnabled) {
+    parts.push("长期记忆已保存");
+  }
+
+  if (result?.estimatedCost?.totalCny >= 0) {
+    parts.push(`本轮 ¥${result.estimatedCost.totalCny.toFixed(6)}`);
+  }
+
+  const usage = result?.usage;
+
+  if (!usage) {
+    return parts.join(" · ");
+  }
+
+  const hitTokens = Number(usage.promptCacheHitTokens || 0);
+  const missTokens = Number(usage.promptCacheMissTokens || 0);
+  const total = hitTokens + missTokens;
+
+  if (total <= 0) {
+    return parts.join(" · ");
+  }
+
+  const hitRate = ((hitTokens / total) * 100).toFixed(1);
+
+  parts.push(`缓存命中 ${hitRate}%`);
+
+  return parts.join(" · ");
+}
+
+function getSelectedChatMode() {
+  return isToggleEnabled(chatThinkingToggle) ? "pro" : "flash";
+}
+
+function getSelectedChatMemoryMode() {
+  return isToggleEnabled(chatMemoryToggle) ? "on" : "off";
+}
+
+async function sendChatMessage(message) {
+  if (isChatSending) return;
+
+  const trimmedMessage = message.trim();
+
+  if (!trimmedMessage) {
+    appendChatMessage("system", "先输入一句话再发送。");
+    return;
+  }
+
+  appendChatMessage("user", trimmedMessage);
+  setChatSending(true);
+  showLine("我想一下。", {
+    expression: "thinking",
+    expressionDurationMs: 3500
+  });
+
+  try {
+    const result = await window.petAPI.sendChatMessage({
+      message: trimmedMessage,
+      mode: getSelectedChatMode(),
+      memoryEnabled: getSelectedChatMemoryMode() === "on"
+    });
+    const reply = result.reply || "我刚刚没有组织好语言。";
+
+    if (result.command === "new") {
+      clearChatMessages();
+    }
+
+    appendChatMessage("assistant", reply, getCacheMetaText(result));
+    showLine(getBubbleSummary(reply), {
+      expression: "happy",
+      expressionDurationMs: 3500
+    });
+  } catch (error) {
+    const message = getChatErrorMessage(error);
+
+    appendChatMessage("system", message);
+    showLine("聊天请求失败啦。", {
+      expression: "thinking",
+      expressionDurationMs: 3500
+    });
+  } finally {
+    setChatSending(false);
+
+    if (chatInput) {
+      chatInput.focus();
+    }
+  }
+}
+
+if (chatForm) {
+  chatForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+
+    if (!chatInput) return;
+
+    const message = chatInput.value;
+    chatInput.value = "";
+    sendChatMessage(message);
+  });
+}
+
+if (chatClose) {
+  chatClose.addEventListener("click", () => {
+    closeChatPanel();
+  });
+}
+
+if (chatBalance) {
+  chatBalance.addEventListener("click", () => {
+    refreshDeepSeekBalance();
+  });
 }
 
 /* =========================
