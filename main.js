@@ -988,9 +988,13 @@ function showContextMenu() {
           click: () => sendPetAction("expression-thinking")
         },
         {
-          label: "困困",
-          click: () => sendPetAction("expression-sleepy")
-        }
+  label: "困困",
+  click: () => sendPetAction("expression-sleepy")
+},
+{
+  label: "小生气",
+  click: () => sendPetAction("expression-angry")
+}
       ]
     },
     {
