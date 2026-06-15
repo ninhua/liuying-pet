@@ -33,8 +33,33 @@ const EXPRESSION_IMAGES = {
   normal: "../assets/character.png",
   happy: "../assets/character_happy.png",
   thinking: "../assets/character_thinking.png",
-  sleepy: "../assets/character_sleepy.png"
+  sleepy: "../assets/character_sleepy.png",
+  angry: "../assets/character_angry.png"
 };
+
+const BLINK_IMAGE_CANDIDATES = {
+  normal: [
+    "../assets/character_blink.png",
+    "../assets/character_sleepy.png"
+  ],
+  happy: [
+    "../assets/character_happy_blink.png",
+    "../assets/character_blink.png",
+    "../assets/character_sleepy.png"
+  ],
+  thinking: [
+    "../assets/character_thinking_blink.png",
+    "../assets/character_blink.png",
+    "../assets/character_sleepy.png"
+  ],
+  angry: [
+  "../assets/character_angry_blink.png",
+  "../assets/character_angry.png"
+],
+  sleepy: []
+};
+
+const loadedBlinkImages = {};
 
 let currentExpression = "normal";
 
@@ -63,6 +88,10 @@ let bubbleTimer = null;
 let spriteTimer = null;
 let spritePlayToken = 0;
 let currentSpriteFrame = 0;
+let blinkTimer = null;
+let blinkFrameTimer = null;
+let blinkPlayToken = 0;
+let isBlinking = false;
 
 let currentPetWidth = 180;
 let currentBubbleText = "";
@@ -106,7 +135,8 @@ const IDLE_MOTION_CLASSES = [
   "idle-motion-normal",
   "idle-motion-happy",
   "idle-motion-thinking",
-  "idle-motion-sleepy"
+  "idle-motion-sleepy",
+  "idle-motion-angry"
 ];
 
 function getFallbackPetHitRect(rect) {
@@ -133,6 +163,8 @@ async function initPet() {
     showLine(`${petConfig.name} 已上线。`);
 
     startReminderSystem();
+    preloadBlinkImages();
+startRandomBlink();
 
     window.petAPI.setMouseIgnore(true);
     lastMouseIgnore = true;
@@ -230,6 +262,8 @@ function updateIdleMotionByExpression(expressionName) {
   表示临时思考，时间结束后回到 baseExpression。
 */
 function setExpression(expressionName, options = {}) {
+  stopBlink(false);
+
   const nextExpression = normalizeExpressionName(expressionName);
   const isTemporary = options.temporary === true;
   const durationMs = Number(options.durationMs || 0);
@@ -340,7 +374,8 @@ petRoot.addEventListener("mousedown", (event) => {
 
   event.preventDefault();
 
-  stopSpriteMotion();
+stopBlink(true);
+stopSpriteMotion();
 
   window.petAPI.setMouseIgnore(false);
   lastMouseIgnore = false;
@@ -526,10 +561,16 @@ function handlePetAction(actionName) {
   }
 
   if (actionName === "expression-sleepy") {
-    setExpression("sleepy");
-    showLine("有点困困的……");
-    return;
-  }
+  setExpression("sleepy");
+  showLine("有点困困的……");
+  return;
+}
+
+if (actionName === "expression-angry") {
+  setExpression("angry");
+  showLine("哼，我有一点点生气。");
+  return;
+}
 }
 
 function updateMouseIgnoreState(mouseX, mouseY) {
@@ -1076,6 +1117,150 @@ if (chatBalance) {
 }
 
 /* =========================
+   随机眨眼 blink 系统
+========================= */
+
+function preloadBlinkImages() {
+  Object.values(BLINK_IMAGE_CANDIDATES).forEach((srcList) => {
+    srcList.forEach((src) => {
+      if (loadedBlinkImages[src] !== undefined) return;
+
+      loadedBlinkImages[src] = false;
+
+      const image = new Image();
+
+      image.onload = () => {
+        loadedBlinkImages[src] = true;
+      };
+
+      image.onerror = () => {
+        loadedBlinkImages[src] = false;
+      };
+
+      image.src = src;
+    });
+  });
+}
+
+function getBlinkImageForCurrentExpression() {
+  const expression = normalizeExpressionName(currentExpression);
+  const candidates = BLINK_IMAGE_CANDIDATES[expression] || [];
+
+  for (const src of candidates) {
+    if (loadedBlinkImages[src] === true) {
+      return src;
+    }
+  }
+
+  return null;
+}
+
+function canPlayBlink() {
+  if (isMouseDown) return false;
+  if (isBlinking) return false;
+
+  if (currentExpression === "sleepy") return false;
+
+  if (speechBubble.classList.contains("show")) return false;
+
+  if (pet.classList.contains("sprite-hidden")) return false;
+
+  if (
+    petMotionLayer &&
+    petMotionLayer.classList.contains("sprite-playing")
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function startRandomBlink() {
+  stopRandomBlink();
+
+  scheduleNextBlink();
+}
+
+function stopRandomBlink() {
+  if (blinkTimer) {
+    clearTimeout(blinkTimer);
+    blinkTimer = null;
+  }
+
+  stopBlink(true);
+}
+
+function scheduleNextBlink() {
+  if (blinkTimer) {
+    clearTimeout(blinkTimer);
+    blinkTimer = null;
+  }
+
+  const delayMs = 4500 + Math.random() * 5500;
+
+  blinkTimer = setTimeout(() => {
+    playBlinkOnce();
+    scheduleNextBlink();
+  }, delayMs);
+}
+
+function playBlinkOnce() {
+  if (!canPlayBlink()) return;
+
+  const blinkImage = getBlinkImageForCurrentExpression();
+
+  if (!blinkImage) return;
+
+  const token = blinkPlayToken + 1;
+  blinkPlayToken = token;
+
+  isBlinking = true;
+
+  const expressionBeforeBlink = currentExpression;
+
+  pet.src = blinkImage;
+
+  if (blinkFrameTimer) {
+    clearTimeout(blinkFrameTimer);
+    blinkFrameTimer = null;
+  }
+
+  blinkFrameTimer = setTimeout(() => {
+    if (token !== blinkPlayToken) return;
+
+    isBlinking = false;
+
+    const expressionAfterBlink = normalizeExpressionName(currentExpression);
+
+    /*
+      如果眨眼期间表情没变，就恢复原表情。
+      如果眨眼期间右键切换了表情，就恢复切换后的表情。
+    */
+    if (expressionBeforeBlink === expressionAfterBlink) {
+      pet.src = EXPRESSION_IMAGES[expressionBeforeBlink];
+    } else {
+      pet.src = EXPRESSION_IMAGES[expressionAfterBlink];
+    }
+  }, 120);
+}
+
+function stopBlink(shouldRestoreImage = true) {
+  blinkPlayToken += 1;
+
+  if (blinkFrameTimer) {
+    clearTimeout(blinkFrameTimer);
+    blinkFrameTimer = null;
+  }
+
+  isBlinking = false;
+
+  if (shouldRestoreImage) {
+    const expression = normalizeExpressionName(currentExpression);
+    pet.src = EXPRESSION_IMAGES[expression];
+  }
+}
+
+/* =========================
    Sprite 动作系统
 ========================= */
 
@@ -1103,6 +1288,8 @@ function stopSpriteMotion() {
 }
 
 function playSpriteMotion(motionName = "wave", fallbackMotion = "hop") {
+  stopBlink(true);
+
   const sprite = SPRITE_CONFIG[motionName];
 
   if (!spritePet || !sprite) {
@@ -1265,6 +1452,8 @@ function showRandomLine() {
   只有 options.expression 存在时，才临时切换表情。
 */
 function showLine(line, options = {}) {
+  stopBlink(true);
+
   let displayLine = line;
 
   if (Array.from(displayLine).length > 32) {

@@ -649,6 +649,10 @@ body,
   animation: liuyingIdleSleepy 6.8s ease-in-out infinite;
 }
 
+#pet-motion-layer.idle-motion-angry {
+  animation: liuyingIdleAngry 3.8s ease-in-out infinite;
+}
+
 /* 拖动时、挥手 sprite 播放时，暂停 idle 微动作 */
 #pet-root.dragging-pet #pet-motion-layer,
 #pet-motion-layer.sprite-playing {
@@ -725,5 +729,28 @@ body,
 
   100% {
     transform: translateY(0) rotate(0deg);
+  }
+}
+
+/* 小生气：轻微左右憋气晃动 */
+@keyframes liuyingIdleAngry {
+  0% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+
+  25% {
+    transform: translateX(-1.5px) rotate(-0.35deg) scale(1.002);
+  }
+
+  50% {
+    transform: translateX(1.5px) rotate(0.35deg) scale(1.002);
+  }
+
+  75% {
+    transform: translateX(-0.8px) rotate(-0.2deg) scale(1.001);
+  }
+
+  100% {
+    transform: translateY(0) rotate(0deg) scale(1);
   }
 }
