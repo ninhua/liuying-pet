@@ -56,7 +56,10 @@ const BLINK_IMAGE_CANDIDATES = {
   "../assets/character_angry_blink.png",
   "../assets/character_angry.png"
 ],
-  sleepy: []
+  sleepy: [
+  "../assets/character_sleepy_blink.png",
+  "../assets/character_sleepy.png"
+]
 };
 
 const loadedBlinkImages = {};
@@ -389,8 +392,6 @@ stopSpriteMotion();
   dragStartSceneX = sceneX;
   dragStartSceneY = sceneY;
 
-  setTemporaryExpression("thinking", 0);
-
   petRoot.classList.add("dragging-pet");
 
   speechBubble.classList.remove("show");
@@ -451,7 +452,6 @@ function cancelMouseDrag() {
   petRoot.classList.remove("dragging-pet");
 
   stopSpriteMotion();
-  restoreBaseExpressionSoon(200);
   setMouseIgnoreIfChanged(true);
 }
 
@@ -477,7 +477,6 @@ function finishMouseDrag(event) {
     showRandomLine();
   } else {
     snapSceneToLeftOrBottomEdge();
-    restoreBaseExpressionSoon(300);
   }
 
   if (
@@ -1159,8 +1158,6 @@ function canPlayBlink() {
   if (isMouseDown) return false;
   if (isBlinking) return false;
 
-  if (currentExpression === "sleepy") return false;
-
   if (speechBubble.classList.contains("show")) return false;
 
   if (pet.classList.contains("sprite-hidden")) return false;
@@ -1196,7 +1193,19 @@ function scheduleNextBlink() {
     blinkTimer = null;
   }
 
-  const delayMs = 4500 + Math.random() * 5500;
+  let minDelayMs = 3500;
+  let maxDelayMs = 7500;
+
+  /*
+    困困状态：眨眼更慢、更少。
+    像快睡着时偶尔缓慢闭眼。
+  */
+  if (currentExpression === "sleepy") {
+    minDelayMs = 6500;
+    maxDelayMs = 13000;
+  }
+
+  const delayMs = minDelayMs + Math.random() * (maxDelayMs - minDelayMs);
 
   blinkTimer = setTimeout(() => {
     playBlinkOnce();
@@ -1218,6 +1227,23 @@ function playBlinkOnce() {
 
   const expressionBeforeBlink = currentExpression;
 
+  /*
+    普通眨眼：110–150ms
+    困困眨眼：220–360ms，更慢，更像睡眼惺忪
+  */
+  let closeDurationMs = 110 + Math.random() * 40;
+
+  if (currentExpression === "sleepy") {
+    closeDurationMs = 220 + Math.random() * 140;
+  }
+
+  /*
+    普通状态偶尔双眨眼。
+    困困状态不双眨，避免像抽动。
+  */
+  const shouldDoubleBlink =
+    currentExpression !== "sleepy" && Math.random() < 0.08;
+
   pet.src = blinkImage;
 
   if (blinkFrameTimer) {
@@ -1228,20 +1254,38 @@ function playBlinkOnce() {
   blinkFrameTimer = setTimeout(() => {
     if (token !== blinkPlayToken) return;
 
-    isBlinking = false;
+    restoreBlinkImage(expressionBeforeBlink);
 
-    const expressionAfterBlink = normalizeExpressionName(currentExpression);
+    if (shouldDoubleBlink && canPlayBlink()) {
+      blinkFrameTimer = setTimeout(() => {
+        if (token !== blinkPlayToken) return;
 
-    /*
-      如果眨眼期间表情没变，就恢复原表情。
-      如果眨眼期间右键切换了表情，就恢复切换后的表情。
-    */
-    if (expressionBeforeBlink === expressionAfterBlink) {
-      pet.src = EXPRESSION_IMAGES[expressionBeforeBlink];
-    } else {
-      pet.src = EXPRESSION_IMAGES[expressionAfterBlink];
+        pet.src = blinkImage;
+
+        blinkFrameTimer = setTimeout(() => {
+          if (token !== blinkPlayToken) return;
+
+          restoreBlinkImage(expressionBeforeBlink);
+        }, closeDurationMs);
+      }, 130);
     }
-  }, 120);
+  }, closeDurationMs);
+}
+
+function restoreBlinkImage(expressionBeforeBlink) {
+  isBlinking = false;
+
+  const expressionAfterBlink = normalizeExpressionName(currentExpression);
+
+  /*
+    如果眨眼期间表情没变，就恢复眨眼前表情。
+    如果期间右键切了状态，就恢复新状态。
+  */
+  if (expressionBeforeBlink === expressionAfterBlink) {
+    pet.src = EXPRESSION_IMAGES[expressionBeforeBlink];
+  } else {
+    pet.src = EXPRESSION_IMAGES[expressionAfterBlink];
+  }
 }
 
 function stopBlink(shouldRestoreImage = true) {
@@ -1424,8 +1468,6 @@ function showRandomLine() {
 
   if (lines.length === 0) {
     showLine("我还没有台词呢。", {
-      expression: "thinking",
-      expressionDurationMs: 3500,
       motion: "wave"
     });
     return;
@@ -1441,8 +1483,6 @@ function showRandomLine() {
     3. 没有 wave.png 时回退为轻轻跳一下
   */
   showLine(line, {
-    expression: "thinking",
-    expressionDurationMs: 3500,
     motion: "wave"
   });
 }
@@ -1484,9 +1524,11 @@ function showLine(line, options = {}) {
     clearTimeout(bubbleTimer);
   }
 
-  bubbleTimer = setTimeout(() => {
-    speechBubble.classList.remove("show");
-  }, 3500);
+const displayDurationMs = Number(options.displayDurationMs || 3500);
+
+bubbleTimer = setTimeout(() => {
+  speechBubble.classList.remove("show");
+}, displayDurationMs);
 }
 
 function getTextVisualLength(text) {
@@ -1608,9 +1650,8 @@ function showReminderLine(item) {
 
   if (lines.length === 0) {
     showLine("该休息一下啦。", {
-      expression: "thinking",
-      expressionDurationMs: 3500,
-      motion: "wiggle"
+      motion: "wiggle",
+      displayDurationMs: 6500
     });
     return;
   }
@@ -1619,9 +1660,8 @@ function showReminderLine(item) {
   const line = lines[randomIndex];
 
   showLine(line, {
-    expression: "thinking",
-    expressionDurationMs: 3500,
-    motion: "wiggle"
+    motion: "wiggle",
+    displayDurationMs: 7000
   });
 }
 
