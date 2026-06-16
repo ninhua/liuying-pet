@@ -1467,9 +1467,7 @@ function showRandomLine() {
   const lines = petConfig.lines || [];
 
   if (lines.length === 0) {
-    showLine("我还没有台词呢。", {
-      motion: "wave"
-    });
+    showLine("我还没有台词呢。");
     return;
   }
 
@@ -1477,14 +1475,14 @@ function showRandomLine() {
   const line = lines[randomIndex];
 
   /*
-    点击说话：
-    1. 临时切换为思考
-    2. 有 wave.png 时播放挥手 sprite
-    3. 没有 wave.png 时回退为轻轻跳一下
+    说一句话：
+    只显示气泡台词。
+    不切换表情。
+    不播放 wave。
+    不播放 hop / wiggle。
+    保持当前状态和当前 idle 微动作。
   */
-  showLine(line, {
-    motion: "wave"
-  });
+  showLine(line);
 }
 
 /*
