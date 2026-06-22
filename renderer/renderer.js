@@ -125,6 +125,12 @@ let petHitCanvas = null;
 let petHitCtx = null;
 let petHitReady = false;
 
+const PET_STATE_STORAGE_KEY = "liuying-pet-state-v1";
+
+let savedPetState = loadSavedPetState();
+let hasReceivedFirstPetWidthFromMain = false;
+let isRestoringSavedState = true;
+
 let isChatOpen = false;
 let isChatSending = false;
 let hasChatGreeting = false;
@@ -142,6 +148,134 @@ const IDLE_MOTION_CLASSES = [
   "idle-motion-angry"
 ];
 
+/* =========================
+   本地状态记忆 localStorage
+========================= */
+
+function loadSavedPetState() {
+  try {
+    const raw = localStorage.getItem(PET_STATE_STORAGE_KEY);
+
+    if (!raw) {
+      return {};
+    }
+
+    const parsed = JSON.parse(raw);
+
+    if (!parsed || typeof parsed !== "object") {
+      return {};
+    }
+
+    return parsed;
+  } catch (error) {
+    console.warn("读取桌宠本地状态失败，将使用默认状态：", error);
+    return {};
+  }
+}
+
+function savePetState(patch = {}) {
+  /*
+    启动恢复阶段不保存。
+    否则 main.js 启动时发来的默认大小，会把上一次保存的大小/位置覆盖掉。
+  */
+  if (isRestoringSavedState) {
+    return;
+  }
+
+  try {
+    const nextState = {
+      ...savedPetState,
+      expression: normalizeExpressionName(baseExpression || currentExpression || "normal"),
+      sceneX,
+      sceneY,
+      petWidth: currentPetWidth,
+      updatedAt: Date.now(),
+      ...patch
+    };
+
+    localStorage.setItem(PET_STATE_STORAGE_KEY, JSON.stringify(nextState));
+    savedPetState = nextState;
+  } catch (error) {
+    console.warn("保存桌宠本地状态失败：", error);
+  }
+}
+
+function getSavedExpression() {
+  return normalizeExpressionName(savedPetState?.expression || "normal");
+}
+
+function getSavedPetWidth() {
+  const width = Number(savedPetState?.petWidth);
+
+  const allowedWidths = [140, 180, 220, 280];
+
+  if (allowedWidths.includes(width)) {
+    return width;
+  }
+
+  return null;
+}
+
+function clampScenePosition(x, y) {
+  const size = getSceneSize();
+
+  const maxX = Math.max(0, window.innerWidth - size.width);
+  const maxY = Math.max(0, window.innerHeight - size.height);
+
+  return {
+    x: Math.min(Math.max(0, Math.round(Number(x) || 0)), maxX),
+    y: Math.min(Math.max(0, Math.round(Number(y) || 0)), maxY)
+  };
+}
+
+function restoreSavedScenePosition() {
+  const savedX = Number(savedPetState?.sceneX);
+  const savedY = Number(savedPetState?.sceneY);
+
+  if (!Number.isFinite(savedX) || !Number.isFinite(savedY)) {
+    return false;
+  }
+
+  const nextPosition = clampScenePosition(savedX, savedY);
+  setScenePosition(nextPosition.x, nextPosition.y);
+
+  return true;
+}
+
+function applyPetWidth(width, shouldSave = true) {
+  const nextWidth = Number(width) || BASE_PET_WIDTH;
+
+  currentPetWidth = nextWidth;
+
+  const sceneScale = nextWidth / BASE_PET_WIDTH;
+
+  petRoot.style.setProperty("--scene-scale", sceneScale);
+
+  /*
+    角色本体仍固定 180px。
+    实际大小由 sceneScale 控制，避免 sprite 重复缩放。
+  */
+  pet.style.width = `${BASE_PET_WIDTH}px`;
+  petRoot.style.setProperty("--pet-width", `${BASE_PET_WIDTH}px`);
+
+  const nextPosition = clampScenePosition(sceneX, sceneY);
+  setScenePosition(nextPosition.x, nextPosition.y);
+
+  if (currentBubbleText) {
+    updateCloudSizeByText(currentBubbleText);
+  } else {
+    updateCloudSizeByText("流萤");
+  }
+
+  if (shouldSave) {
+    savePetState({
+      petWidth: nextWidth,
+      sceneX,
+      sceneY
+    });
+  }
+}
+
 function getFallbackPetHitRect(rect) {
   return {
     left: rect.left + rect.width * 0.18,
@@ -156,22 +290,30 @@ async function initPet() {
     buildPetHitCanvas();
     initChatOptionState();
     resetSceneInitialPosition();
+    restoreSavedScenePosition();
 
     petConfig = await window.petAPI.getPetConfig();
     console.log("读取到桌宠配置：", petConfig);
 
     remindersRuntimeEnabled = petConfig.reminders?.enabled === true;
 
-    setExpression("normal");
+   setExpression(getSavedExpression(), {
+  skipSave: true
+});
     showLine(`${petConfig.name} 已上线。`);
 
     startReminderSystem();
+
     preloadBlinkImages();
-startRandomBlink();
+    startRandomBlink();
 
     window.petAPI.setMouseIgnore(true);
     lastMouseIgnore = true;
+    setTimeout(() => {
+  isRestoringSavedState = false;
+}, 300);
   } catch (error) {
+    isRestoringSavedState = false;
     console.error("读取桌宠配置失败：", error);
     showLine("配置读取失败啦，但我还是在。");
   }
@@ -267,9 +409,10 @@ function updateIdleMotionByExpression(expressionName) {
 function setExpression(expressionName, options = {}) {
   stopBlink(false);
 
-  const nextExpression = normalizeExpressionName(expressionName);
-  const isTemporary = options.temporary === true;
-  const durationMs = Number(options.durationMs || 0);
+const nextExpression = normalizeExpressionName(expressionName);
+const isTemporary = options.temporary === true;
+const durationMs = Number(options.durationMs || 0);
+const skipSave = options.skipSave === true;
 
   if (expressionTimer) {
     clearTimeout(expressionTimer);
@@ -285,6 +428,12 @@ function setExpression(expressionName, options = {}) {
 
   pet.src = EXPRESSION_IMAGES[nextExpression];
   updateIdleMotionByExpression(nextExpression);
+
+  if (!isTemporary && !skipSave) {
+  savePetState({
+    expression: nextExpression
+  });
+}
 
   if (isTemporary && durationMs > 0) {
     const restoreExpression = baseExpression;
@@ -473,11 +622,16 @@ function finishMouseDrag(event) {
 
   petRoot.classList.remove("dragging-pet");
 
-  if (!wasMoved) {
-    showRandomLine();
-  } else {
-    snapSceneToLeftOrBottomEdge();
-  }
+if (!wasMoved) {
+  showRandomLine();
+} else {
+  snapSceneToLeftOrBottomEdge();
+
+  savePetState({
+    sceneX,
+    sceneY
+  });
+}
 
   if (
     event &&
@@ -524,17 +678,29 @@ function handlePetAction(actionName) {
     return;
   }
 
-  if (actionName === "reset-position") {
-    resetSceneInitialPosition();
-    showLine("我回到默认位置啦。");
-    return;
-  }
+if (actionName === "reset-position") {
+  resetSceneInitialPosition();
 
-  if (actionName === "snap-left-bottom") {
-    moveSceneToLeftBottom();
-    showLine("我到左下角啦。");
-    return;
-  }
+  savePetState({
+    sceneX,
+    sceneY
+  });
+
+  showLine("我回到默认位置啦。");
+  return;
+}
+
+if (actionName === "snap-left-bottom") {
+  moveSceneToLeftBottom();
+
+  savePetState({
+    sceneX,
+    sceneY
+  });
+
+  showLine("我到左下角啦。");
+  return;
+}
 
   if (actionName === "toggle-reminders") {
     toggleReminderSystem();
@@ -1668,24 +1834,34 @@ function showReminderLine(item) {
 ========================= */
 
 window.petAPI.onSetPetWidth((width) => {
-  currentPetWidth = width;
+  let nextWidth = Number(width) || BASE_PET_WIDTH;
 
-  const sceneScale = width / BASE_PET_WIDTH;
+  /*
+    第一次收到 main.js 发来的大小时：
+    优先用 localStorage 里保存的大小。
+    但这个阶段不保存，避免覆盖旧记录。
+  */
+  if (!hasReceivedFirstPetWidthFromMain) {
+    hasReceivedFirstPetWidthFromMain = true;
 
-  petRoot.style.setProperty("--scene-scale", sceneScale);
+    const savedWidth = getSavedPetWidth();
 
-  pet.style.width = `${BASE_PET_WIDTH}px`;
-  petRoot.style.setProperty("--pet-width", `${BASE_PET_WIDTH}px`);
-
-  if (currentBubbleText) {
-    updateCloudSizeByText(currentBubbleText);
-  } else {
-    updateCloudSizeByText("流萤");
+    if (savedWidth) {
+      nextWidth = savedWidth;
+    }
   }
+
+  applyPetWidth(nextWidth, !isRestoringSavedState);
 });
 
 window.addEventListener("resize", () => {
-  setScenePosition(sceneX, sceneY);
+  const nextPosition = clampScenePosition(sceneX, sceneY);
+  setScenePosition(nextPosition.x, nextPosition.y);
+
+  savePetState({
+    sceneX,
+    sceneY
+  });
 });
 
 initPet();
